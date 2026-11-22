@@ -44,6 +44,8 @@ button {
 }
 .brand {
   gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 .mark {
   display: grid;
@@ -62,9 +64,13 @@ h1 {
   margin: 0;
   font-size: 0.9rem;
   font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .controls {
   gap: 2px;
+  flex-shrink: 0;
 }
 .controls button {
   -webkit-app-region: no-drag;
@@ -224,4 +230,69 @@ footer {
 .compact .quota-value {
   flex-wrap: wrap;
   gap: 2px 5px;
+}
+.settings-panel {
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.settings-panel button,
+.settings-panel select {
+  font: inherit;
+  color: #e9edf5;
+  border: 1px solid #35435a;
+  border-radius: 5px;
+  background: #202938;
+  padding: 5px 7px;
+}
+.settings-panel button {
+  cursor: pointer;
+}
+.settings-panel fieldset {
+  display: grid;
+  gap: 11px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.settings-panel label {
+  display: grid;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: #c0cbdb;
+}
+.settings-panel label.checkbox-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-panel input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--green);
+}
+.range-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.range-setting input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--green);
+}
+.range-setting output {
+  width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.settings-panel :focus-visible {
+  outline: 2px solid #80b6f8;
+  outline-offset: 2px;
 }

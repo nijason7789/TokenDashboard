@@ -26,3 +26,20 @@ it("uses the nearest work area after DPI or display geometry changes", () => {
   });
   expect(visibleBounds(primary, [])).toEqual(primary);
 });
+
+it("fits completely inside an unusually small negative work area", () => {
+  const tiny = { x: -260, y: -460, width: 160, height: 120 };
+  const bounds = { x: -800, y: -900, width: 360, height: 340 };
+  expect(visibleBounds(bounds, [primary, tiny])).toEqual(tiny);
+});
+
+it("uses the nearest work area when a saved position falls in a gap", () => {
+  const right = { x: 1800, y: 100, width: 1440, height: 800 };
+  expect(
+    visibleBounds({ x: 1510, y: 80, width: 220, height: 250 }, [
+      primary,
+      right,
+      secondary,
+    ]),
+  ).toEqual({ x: 1800, y: 100, width: 220, height: 250 });
+});

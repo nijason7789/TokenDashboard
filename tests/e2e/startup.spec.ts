@@ -1,11 +1,28 @@
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseRateLimitsResponse } from "../../src/main/codex/rate-limits";
 import { quotaDisplayStatus } from "../../src/main/services/quota-display";
-import { IPC_CHANNELS, RENDERER_URL } from "../../src/shared/contract";
+import {
+  IPC_CHANNELS,
+  IPC_EVENTS,
+  RENDERER_URL,
+} from "../../src/shared/contract";
+
+let profile: string;
+test.beforeEach(async () => {
+  profile = await mkdtemp(join(tmpdir(), "quota-e2e-"));
+});
+test.afterEach(async () => {
+  await rm(profile, { recursive: true, force: true, maxRetries: 3 });
+});
+const launch = () =>
+  electron.launch({ args: [".", "--user-data-dir=" + profile] });
 
 test("opens the production renderer without a mock provider", async () => {
-  const app = await electron.launch({ args: ["."] });
+  const app = await launch();
   try {
     const page = await app.firstWindow();
     await expect(page).toHaveURL("app://monitor/index.html");
@@ -31,7 +48,17 @@ test("opens the production renderer without a mock provider", async () => {
     expect(native).toEqual({ resizable: true, inWorkArea: true });
     expect(
       await page.evaluate(() => Object.keys(window.quotaMonitor).sort()),
-    ).toEqual(["closeWindow", "getAlwaysOnTop", "getStatus", "setAlwaysOnTop"]);
+    ).toEqual([
+      "closeWindow",
+      "getAlwaysOnTop",
+      "getSettings",
+      "getStatus",
+      "onOpenSettings",
+      "onSettingsChanged",
+      "onStatusChanged",
+      "setAlwaysOnTop",
+      "updateSettings",
+    ]);
     expect(
       await page.evaluate(() => typeof Reflect.get(window, "require")),
     ).toBe("undefined");
@@ -85,7 +112,7 @@ test("renders and refreshes explicitly injected quota fixtures in Electron", asy
     ),
   ];
 
-  const app = await electron.launch({ args: ["."] });
+  const app = await launch();
   try {
     const page = await app.firstWindow();
     await expect(page.getByText("Quota source unavailable")).toBeVisible();
@@ -120,6 +147,7 @@ test("renders and refreshes explicitly injected quota fixtures in Electron", asy
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.setSize(300, 340),
     );
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(300);
     await expect
       .poll(() =>
         page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -134,13 +162,19 @@ test("renders and refreshes explicitly injected quota fixtures in Electron", asy
 
     await expect(page.locator(".quota-meta time")).toHaveCount(0);
     const pin = page.getByRole("button", { name: "Always on top" });
+    await expect(pin).toHaveAttribute("aria-pressed", "false");
+    expect(
+      await page.evaluate(() => window.quotaMonitor.getAlwaysOnTop()),
+    ).toBe(false);
     await pin.click();
     await expect(pin).toHaveAttribute("aria-pressed", "true");
-    expect(
-      await app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()[0]?.isAlwaysOnTop(),
-      ),
-    ).toBe(true);
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]?.isAlwaysOnTop(),
+        ),
+      )
+      .toBe(true);
     await pin.click();
     await expect(pin).toHaveAttribute("aria-pressed", "false");
 
@@ -150,5 +184,117 @@ test("renders and refreshes explicitly injected quota fixtures in Electron", asy
     await expect(page.getByRole("status")).toContainText("Connected");
   } finally {
     await app.close();
+  }
+});
+
+test("receives sanitized status events and persists settings and bounds across quit", async () => {
+  let app = await launch();
+  let child = app.process();
+  try {
+    let page = await app.firstWindow();
+    expect(await app.evaluate(({ app }) => app.getPath("userData"))).toBe(
+      profile,
+    );
+    await expect(page.getByRole("status")).toHaveText(
+      "Quota source unavailable",
+    );
+    expect(
+      (await page.evaluate(() => window.quotaMonitor.getSettings()))
+        .launchOnStartup,
+    ).toBe(false);
+    await app.evaluate(
+      ({ BrowserWindow }, { channel, open }) => {
+        const contents = BrowserWindow.getAllWindows()[0]!.webContents;
+        contents.send(channel, {
+          source: "mock",
+          phase: "connected",
+          fiveHour: {
+            state: "available",
+            remainingPercent: 66,
+            resetsAtMs: null,
+          },
+          secret: "raw-sensitive-probe",
+        });
+        contents.send(open);
+      },
+      { channel: IPC_EVENTS.status, open: IPC_EVENTS.openSettings },
+    );
+    await expect(page.getByText("Mock data")).toBeVisible();
+    await expect(page.getByText("66%", { exact: true })).toBeVisible();
+    await expect(page.getByText("raw-sensitive-probe")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Close settings" }),
+    ).toBeVisible();
+
+    await page.evaluate(() =>
+      window.quotaMonitor.updateSettings({
+        compact: true,
+        opacity: 0.8,
+        closeToTray: true,
+        percentageMode: "used",
+        refreshInterval: 120,
+      }),
+    );
+    await app.evaluate(({ BrowserWindow, screen }) => {
+      const window = BrowserWindow.getAllWindows()[0]!;
+      const { x, y } = screen.getDisplayMatching(window.getBounds()).workArea;
+      window.setBounds({ x: x + 40, y: y + 40, width: 410, height: 440 });
+    });
+    const bounds = await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]!.getNormalBounds(),
+    );
+    await page.getByRole("button", { name: "Close settings" }).click();
+    await page.getByRole("button", { name: "Close window" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]?.isVisible(),
+        ),
+      )
+      .toBe(false);
+    await app.evaluate(({ app }) => {
+      app.emit("second-instance", {}, [], "", {});
+    });
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]?.isVisible(),
+        ),
+      )
+      .toBe(true);
+    await app.close();
+    expect(child.exitCode).toBe(0);
+
+    app = await launch();
+    child = app.process();
+    page = await app.firstWindow();
+    await expect(
+      page.getByRole("button", { name: "Normal mode" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      await page.evaluate(() => window.quotaMonitor.getSettings()),
+    ).toMatchObject({
+      compact: true,
+      opacity: 0.8,
+      closeToTray: true,
+      percentageMode: "used",
+      refreshInterval: 120,
+      launchOnStartup: false,
+    });
+    expect(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]!.getNormalBounds(),
+      ),
+    ).toEqual(bounds);
+    expect(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]!.getOpacity(),
+      ),
+    ).toBeCloseTo(0.8, 2);
+    await expect(page.getByRole("status")).toHaveText(
+      "Quota source unavailable",
+    );
+  } finally {
+    if (child.exitCode === null) await app.close();
   }
 });

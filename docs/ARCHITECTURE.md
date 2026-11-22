@@ -46,3 +46,14 @@ M3 的 `QuotaMonitor` 依賴可取消開啟、讀取、訂閱及關閉的 provid
 Main 以 DIP 工作區配置無框視窗，並在 display 新增、移除或 metrics 改變時將視窗夾在可見工作區內。視窗狀態在目前執行期間保存。Preload 只提供額度狀態、讀取與設定置頂，以及關閉視窗。Main 驗證每次請求的 sender、頂層 frame、URL 和參數。
 
 測試以監控快照產生顯示 DTO，只映射已選 bucket，保留 missing 與 ambiguous，省略帳號與錯誤細節。正式入口仍回報來源不可用。Normal 顯示兩種百分比語意與重置時間，Compact 保留剩餘量、倒數與控制項。可見視窗內的倒數以本機時鐘更新，沒有額外 RPC。Playwright 透過測試控制端注入帶標籤 fixture。
+## M5 Tray 與偏好
+
+Main 使用單一執行個體鎖持有一個 Tray。點擊 Tray 顯示或隱藏視窗，選單提供刷新、置頂、Compact、設定及明確退出。視窗關閉可轉到 Tray，退出會銷毀 Tray、取消延遲儲存、等待目前寫入和最終 bounds 儲存，並移除 IPC 與 display listeners。
+
+Windows 置頂使用 Electron 的 `pop-up-menu` 層級，避免預設浮動層級在工作列重排時失去置頂。恢復位置仍以顯示器工作區約束。 [Electron 視窗 API](https://www.electronjs.org/docs/latest/api/browser-window#winsetalwaysontopflag-level-relativelevel)
+
+偏好與 DIP bounds 以同目錄暫存檔與 rename 儲存在 Electron userData。設定採逐欄安全預設，寫入先驗證。Windows 啟動預設關閉，切換時由 Main 使用 Electron 登入項目 API，並以相同參數讀回確認。打包及真正登出再登入的檢驗留在 M6。
+
+Main 只發送已清理的額度 DTO、完整驗證的偏好與無參數的開啟設定事件。Preload 在擁有頁面的頂層 frame 交付固定頻道事件，清理時卸訂。Renderer 在下一個分鐘邊界更新倒數，隱藏時取消 timer，恢復可見時重讀本機時鐘。
+
+低額度通知只接受新鮮、已選定 bucket 且重置時間有效的資料。去重鍵由 bucket、視窗和重置時間雜湊產生，經本機儲存跨重啟保留。正式入口仍沒有啟用 Codex provider，刷新只重新發布不可用狀態，因此輪詢間隔目前作為已驗證的偏好儲存。

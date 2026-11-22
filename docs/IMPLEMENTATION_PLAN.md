@@ -66,6 +66,8 @@ M3 審查 F-04：取消開啟後最多等待 1 秒確認 ownership。若 provide
 
 驗收：無效設定安全回落、重啟保存、去重跨區間並涵蓋未知 reset、default startup off。E2E 驗證 persistence 及 visibility。Windows 手動 checklist 涵蓋 Tray、置頂、最小化、關閉轉 Tray、portable 啟動項、顯示器拔除及 DPI 改變。
 
+M5 將 F-07 的固定事件、F-08 的可見分鐘倒數與 F-09 的負座標、小工作區及顯示器移除測試納入驗收。自動測試使用 Windows 啟動項 API mock，桌面 E2E 使用每次新建的 userData。實際登出登入、portable 路徑、系統通知橫幅及實體混合 DPI 切換留待發行驗證。
+
 ## M6 — 安全審查與發行
 
 執行全套 unit、component、integration 與 Windows E2E。核心 branch coverage 目標 ≥90%，overall 目標 ≥80%，記錄未覆蓋的安全路徑。檢查 renderer、IPC、子行程、網路、持久化與依賴稽核，記錄 advisory 和影響，禁止盲目 force fix。

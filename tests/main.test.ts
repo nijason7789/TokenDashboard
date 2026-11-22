@@ -1,18 +1,28 @@
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { RENDERER_URL } from "../src/shared/contract";
+import { DEFAULT_SETTINGS } from "../src/shared/settings";
 
 const mocks = vi.hoisted(() => {
   const contents = {
     mainFrame: { url: "app://monitor/index.html" },
     setWindowOpenHandler: vi.fn(),
     on: vi.fn(),
+    send: vi.fn(),
   };
   const window = {
     webContents: contents,
     on: vi.fn(),
     loadURL: vi.fn(),
     show: vi.fn(),
+    hide: vi.fn(),
+    focus: vi.fn(),
+    restore: vi.fn(),
+    isMinimized: vi.fn(() => false),
+    isVisible: vi.fn(() => true),
+    setOpacity: vi.fn(),
+    setMinimumSize: vi.fn(),
+    getNormalBounds: vi.fn(() => ({ x: 920, y: 0, width: 360, height: 340 })),
     close: vi.fn(),
     isAlwaysOnTop: vi.fn(() => false),
     setAlwaysOnTop: vi.fn(),
@@ -35,6 +45,20 @@ const mocks = vi.hoisted(() => {
     ipc: { handle: vi.fn(), removeHandler: vi.fn() },
     readFile: vi.fn(async () => new Uint8Array()),
     exit: vi.fn(),
+    quit: vi.fn(),
+    appOn: vi.fn(),
+    appOff: vi.fn(),
+    save: vi.fn(async () => {}),
+    setLoginItemSettings: vi.fn(),
+    getLoginItemSettings: vi.fn(() => ({ openAtLogin: true })),
+    tray: {
+      setToolTip: vi.fn(),
+      setContextMenu: vi.fn(),
+      on: vi.fn(),
+      destroy: vi.fn(),
+      isDestroyed: vi.fn(() => true),
+    },
+    createTray: vi.fn(),
     screen: {
       getPrimaryDisplay: vi.fn(() => ({
         workArea: { x: 0, y: 0, width: 1280, height: 720 },
@@ -49,12 +73,37 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("electron", () => ({
-  app: { on: vi.fn(), whenReady: async () => {}, exit: mocks.exit },
+  app: {
+    on: mocks.appOn,
+    off: mocks.appOff,
+    whenReady: async () => {},
+    exit: mocks.exit,
+    quit: mocks.quit,
+    getPath: () => "test-profile",
+    getAppPath: () => "test-app",
+    requestSingleInstanceLock: () => true,
+    setLoginItemSettings: mocks.setLoginItemSettings,
+    getLoginItemSettings: mocks.getLoginItemSettings,
+  },
   BrowserWindow: mocks.createWindow,
   ipcMain: mocks.ipc,
   protocol: { registerSchemesAsPrivileged: vi.fn() },
   session: { fromPartition: () => mocks.session },
   screen: mocks.screen,
+  Tray: mocks.createTray.mockImplementation(function () {
+    return mocks.tray;
+  }),
+  Menu: { buildFromTemplate: (items: unknown) => items },
+  nativeImage: { createFromBitmap: vi.fn() },
+  Notification: { isSupported: () => false },
+}));
+vi.mock("../src/main/settings", () => ({
+  SettingsStore: class {
+    async load() {
+      return { settings: { ...DEFAULT_SETTINGS } };
+    }
+    save = mocks.save;
+  },
 }));
 vi.mock("node:fs/promises", () => ({
   readdir: async () => [
@@ -142,7 +191,7 @@ it("wires the production boundaries and denies requests outside the asset and IP
   expect(gate).toHaveBeenCalledExactlyOnceWith({ cancel: true });
 
   const [channel, read] = mocks.ipc.handle.mock.calls[0]!;
-  expect(mocks.ipc.handle).toHaveBeenCalledTimes(4);
+  expect(mocks.ipc.handle).toHaveBeenCalledTimes(6);
   expect(channel).toBe("quota:status");
   const sender = mocks.window.webContents;
   expect(() =>
@@ -154,6 +203,9 @@ it("wires the production boundaries and denies requests outside the asset and IP
   expect(read({ sender, senderFrame: sender.mainFrame })).toEqual({
     source: "unavailable",
   });
+  expect(sender.send).toHaveBeenCalledWith("quota:changed", {
+    source: "unavailable",
+  });
   const windowHandler = (channel: string) =>
     mocks.ipc.handle.mock.calls.find(([name]) => name === channel)![1];
   expect(
@@ -162,11 +214,14 @@ it("wires the production boundaries and denies requests outside the asset and IP
       senderFrame: sender.mainFrame,
     }),
   ).toBe(false);
-  windowHandler("window:set-always-on-top")(
+  await windowHandler("window:set-always-on-top")(
     { sender, senderFrame: sender.mainFrame },
     true,
   );
-  expect(mocks.window.setAlwaysOnTop).toHaveBeenCalledWith(true);
+  expect(mocks.window.setAlwaysOnTop).toHaveBeenCalledWith(
+    true,
+    process.platform === "win32" ? "pop-up-menu" : "floating",
+  );
   expect(() =>
     windowHandler("window:set-always-on-top")(
       { sender, senderFrame: sender.mainFrame },
@@ -175,6 +230,35 @@ it("wires the production boundaries and denies requests outside the asset and IP
   ).toThrow();
   windowHandler("window:close")({ sender, senderFrame: sender.mainFrame });
   expect(mocks.window.close).toHaveBeenCalledOnce();
+  const event = { sender, senderFrame: sender.mainFrame };
+  const update = windowHandler("settings:update");
+  expect(() => update(event, { refreshInterval: 45 })).toThrow();
+  expect(() =>
+    update(
+      { sender: { ...sender }, senderFrame: sender.mainFrame },
+      { opacity: 0.8 },
+    ),
+  ).toThrow();
+  await expect(
+    update(event, { opacity: 0.8, compact: true }),
+  ).resolves.toMatchObject({ opacity: 0.8, compact: true });
+  expect(mocks.window.setOpacity).toHaveBeenCalledWith(0.8);
+  expect(sender.send).toHaveBeenCalledWith(
+    "settings:changed",
+    expect.objectContaining({ compact: true }),
+  );
+  mocks.save.mockRejectedValueOnce(new Error("private filesystem details"));
+  await expect(update(event, { opacity: 0.7 })).rejects.toThrow(
+    "Settings could not be saved",
+  );
+  expect(windowHandler("settings:get")(event).opacity).toBe(0.8);
+  if (process.platform === "win32") {
+    await update(event, { launchOnStartup: true });
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: true,
+      args: ['"test-app"'],
+    });
+  }
   mocks.screen.on.mock.calls[0]![1]();
   expect(mocks.window.setBounds).toHaveBeenCalledWith({
     x: 920,
@@ -182,7 +266,28 @@ it("wires the production boundaries and denies requests outside the asset and IP
     width: 360,
     height: 340,
   });
-  mocks.window.on.mock.calls.find(([name]) => name === "closed")![1]();
-  expect(mocks.ipc.removeHandler).toHaveBeenCalledTimes(4);
+  expect(mocks.createTray).toHaveBeenCalledOnce();
+  const preventDefault = vi.fn();
+  const windowEvent = (name: string) =>
+    mocks.window.on.mock.calls.find(([candidate]) => name === candidate)![1];
+  windowEvent("close")({ preventDefault });
+  expect(mocks.window.hide).toHaveBeenCalledOnce();
+  windowEvent("minimize")({ preventDefault });
+  expect(mocks.window.hide).toHaveBeenCalledTimes(2);
+  await update(event, { closeToTray: false });
+  windowEvent("close")({ preventDefault });
+  expect(mocks.quit).toHaveBeenCalledOnce();
+  expect(mocks.window.hide).toHaveBeenCalledTimes(2);
+  mocks.quit.mockClear();
+  const beforeQuit = mocks.appOn.mock.calls.find(
+    ([name]) => name === "before-quit",
+  )![1];
+  beforeQuit({ preventDefault });
+  beforeQuit({ preventDefault });
+  await vi.waitFor(() => expect(mocks.quit).toHaveBeenCalledOnce());
+  expect(mocks.tray.destroy).toHaveBeenCalledOnce();
+  windowEvent("closed")();
+  expect(mocks.ipc.removeHandler).toHaveBeenCalledTimes(6);
   expect(mocks.screen.off).toHaveBeenCalledTimes(3);
+  expect(mocks.appOff).toHaveBeenCalledWith("before-quit", beforeQuit);
 });

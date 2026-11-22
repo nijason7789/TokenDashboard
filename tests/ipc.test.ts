@@ -14,6 +14,8 @@ describe("status IPC", () => {
       getAlwaysOnTop: "window:get-always-on-top",
       setAlwaysOnTop: "window:set-always-on-top",
       closeWindow: "window:close",
+      getSettings: "settings:get",
+      updateSettings: "settings:update",
     });
     expect(handle({ sender: owner, senderFrame: mainFrame })).toEqual({
       source: "unavailable",
