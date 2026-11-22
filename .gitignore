@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.env
+.env.*
+*.log
+*.pem
+*.key
+*.pfx
+*.p12
+.npmrc
+.codex/
+.agents/
+.aws/
+auth.json
