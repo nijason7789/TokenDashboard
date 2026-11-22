@@ -9,7 +9,7 @@ const fixture = fileURLToPath(
 );
 const image = "C:\\fixture\\codex.exe";
 
-async function startFixture(scenario = "normal") {
+async function startFixture(scenario = "normal", timeoutMs?: number) {
   const processOwner = await launchVerifiedCodex([image], {
     env: {},
     verify: async () => ({
@@ -24,7 +24,7 @@ async function startFixture(scenario = "normal") {
         stdio: ["pipe", "pipe", "pipe"],
       }),
   });
-  const transport = new CodexTransport(processOwner.child);
+  const transport = new CodexTransport(processOwner.child, { timeoutMs });
   const close = async () => {
     transport.close();
     await processOwner.shutdown();
@@ -79,3 +79,28 @@ it.each(["malformed", "exit"])(
     }
   },
 );
+
+it("retires the timed-out child before a fresh handshake and quota read", async () => {
+  const stalled = await startFixture("stall", 1_500);
+  try {
+    await expect(stalled.transport.readRateLimits()).rejects.toThrow(
+      "Request timed out",
+    );
+  } finally {
+    await stalled.close();
+  }
+  await expect(stalled.transport.readRateLimits()).rejects.toThrow(
+    "Transport unavailable",
+  );
+
+  const fresh = await startFixture();
+  try {
+    const snapshot = await fresh.transport.readRateLimits();
+    expect(snapshot.defaultSelection).toEqual({
+      state: "selected",
+      bucketId: "codex",
+    });
+  } finally {
+    await fresh.close();
+  }
+});

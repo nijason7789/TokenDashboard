@@ -23,7 +23,13 @@ M2.1 選擇 Windows 內建 PowerShell 作獨立驗證程序。固定程式碼以
 
 此順序縮小 TOCTOU 窗口，但 Node spawn 無暫停載入能力，行程可能在比對前執行初始化。OS 回報的映像路徑與鎖住的磁碟檔驗證並非行程映射區段的原子驗證。仍信任 OS、檔案系統及本機信任庫，無法保護已受控制的 OS 或具有同等帳號權限的行程注入。當前版本限系統根為 `C:\Windows` 的 Windows x64／ARM64，拒絕無法使用系統 PowerShell 或 `Add-Type` 的環境。啟動 cwd 固定為系統目錄，僅繼承驗證過的 profile 與 temp 目錄變數。自訂 CODEX_HOME、PATH、API key、代理或端點環境變數未傳入。
 
-本機非 Codex 驗證使用 Windows 內建二進位，觀察到有效簽章但不同發行者的拒絕。另以只在測試程序中接受該 Microsoft 發行者的腳本副本，確認系統 API 可核對該 fixture 的行程與檔案身分。本機探查僅限系統磁碟，跳過一般 junction，再由驗證程序檢查全部路徑控制代碼。官方 CLI 通過完整啟動與身分比對的實測留待 M2.4。Windows 11 與 ARM64 尚未驗證。 [Microsoft Authenticode 文件](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-authenticodesignature?view=powershell-5.1)
+本機非 Codex 驗證使用 Windows 內建二進位，觀察到有效簽章但不同發行者的拒絕。另以只在測試程序中接受該 Microsoft 發行者的腳本副本，確認系統 API 可核對該 fixture 的行程與檔案身分。本機探查僅限系統磁碟，跳過一般 junction，再由驗證程序檢查全部路徑控制代碼。獨立審查後已用空白 profile 驗證官方 CLI 的啟動與身分比對，數據見 [隔離測試紀錄](IMPLEMENTATION_PLAN.md#獨立審查後的未登入隔離測試)。Windows 11 與 ARM64 尚未驗證。 [Microsoft Authenticode 文件](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-authenticodesignature?view=powershell-5.1)
+
+## 獨立審查 F-01 與 F-03
+
+啟動期間保留祖先目錄與映像檔控制代碼，且在驗證 PID 對應的模組路徑、volume/file index 與 SHA-256 後才把 stdio 交給 RPC。任何不符、存取被拒或無法確認均停止，已啟動的行程立即終止。實務上優先使用由受信任使用者或管理員維護、可取得全部控制代碼的本機安裝；候選路徑與雜湊變更時須重新核對。Node 啟動到映像檢查之間仍能執行初始化，檔案鎖也不能防禦已控制作業系統或同帳號行程注入。若部署要求在執行第一條指令前完成映像驗證，需另案評估暫停建立行程或使用 OS 執行政策，本階段維持現有依賴與信任要求。
+
+相容環境為使用 `C:\Windows` 的 Windows x64／ARM64 與內建 Windows PowerShell 5.1，需允許 `Add-Type`、可寫入本機暫存資料夾，且執行帳號需能開啟候選檔與每層祖先目錄。Windows 10 x64 為本機驗證環境，Windows 11／ARM64 尚未驗證。其他系統根會回報驗證不可用。無可用候選時回報找不到執行檔。驗證程式、存取權限、簽章或發行者任何一項失敗，一律回報無法建立信任；啟動後身分不符則回報映像無法驗證。錯誤不附路徑或原始 stderr，也不切換至 shim 或較弱的驗證方式。
 
 ## M1 已實作的邊界
 
