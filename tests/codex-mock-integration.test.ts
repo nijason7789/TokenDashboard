@@ -2,15 +2,17 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { expect, it, vi } from "vitest";
 import { launchVerifiedCodex, PUBLISHER } from "../src/main/codex/process";
+import { createCodexQuotaProvider } from "../src/main/codex/quota-provider";
 import { CodexTransport } from "../src/main/codex/transport";
+import { QuotaMonitor } from "../src/main/services/quota-monitor";
 
 const fixture = fileURLToPath(
   new URL("./fixtures/mock-app-server.mjs", import.meta.url),
 );
 const image = "C:\\fixture\\codex.exe";
 
-async function startFixture(scenario = "normal", timeoutMs?: number) {
-  const processOwner = await launchVerifiedCodex([image], {
+function launchFixture(scenario: string) {
+  return launchVerifiedCodex([image], {
     env: {},
     verify: async () => ({
       evidence: { path: image, publisher: PUBLISHER, signature: "Valid" },
@@ -24,6 +26,10 @@ async function startFixture(scenario = "normal", timeoutMs?: number) {
         stdio: ["pipe", "pipe", "pipe"],
       }),
   });
+}
+
+async function startFixture(scenario = "normal", timeoutMs?: number) {
+  const processOwner = await launchFixture(scenario);
   const transport = new CodexTransport(processOwner.child, { timeoutMs });
   const close = async () => {
     transport.close();
@@ -103,4 +109,33 @@ it("retires the timed-out child before a fresh handshake and quota read", async 
   } finally {
     await fresh.close();
   }
+});
+
+it("reaps a crashed mock child before the monitor opens a replacement", async () => {
+  const children: Awaited<ReturnType<typeof launchFixture>>["child"][] = [];
+  const monitor = new QuotaMonitor(
+    createCodexQuotaProvider(async () => {
+      const prior = children.at(-1);
+      if (prior) {
+        expect(prior.exitCode).toBe(7);
+        expect(prior.eventNames()).toEqual([]);
+      }
+      const running = await launchFixture(prior ? "normal" : "exit");
+      children.push(running.child);
+      return running;
+    }),
+  );
+
+  try {
+    await monitor.start();
+    expect(monitor.status).toEqual({ phase: "error", reason: "transport" });
+    await vi.waitFor(() => expect(monitor.status.phase).toBe("connected"), {
+      timeout: 4500,
+    });
+    expect(children).toHaveLength(2);
+  } finally {
+    await monitor.stop();
+  }
+  expect(children[1]?.exitCode).toBe(0);
+  expect(children[1]?.eventNames()).toEqual([]);
 });

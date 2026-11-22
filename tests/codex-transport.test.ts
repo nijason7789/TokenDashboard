@@ -49,6 +49,22 @@ async function ready() {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
+it("reports an idle fatal transport failure once and leaves explicit close silent", async () => {
+  const child = new MockProcess();
+  const failure = vi.fn();
+  const transport = new CodexTransport(child, { onFailure: failure });
+  const initialized = transport.initialize();
+  child.reply({ id: 1, result: init });
+  await initialized;
+  child.stdout.write("{broken\n");
+  expect(failure).toHaveBeenCalledOnce();
+  transport.close();
+  expect(failure).toHaveBeenCalledOnce();
+  const silent = vi.fn();
+  new CodexTransport(new MockProcess(), { onFailure: silent }).close();
+  expect(silent).not.toHaveBeenCalled();
+});
+
 describe("read-only stdio transport", () => {
   it.each([
     { timeoutMs: 0 },

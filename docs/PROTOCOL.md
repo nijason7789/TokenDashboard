@@ -28,6 +28,6 @@ M2 預設 RPC timeout 10 秒，最多一個在途 RPC、16 個通知訂閱者，
 - `primary`、`secondary` 可為 null。掃描兩者，精確以 `windowDurationMins` 的 300／10080 分鐘識別 5 小時／每週。未知長度、缺少長度、同一 bucket 內同長度出現兩筆互相衝突的資料，對應項顯示 N/A。
 - `usedPercent` 必須是有限且介於 0–100 的 number，剩餘量為 `100 - usedPercent`。越界或 malformed 欄位拒絕回覆。Reset 為可空的 Unix 秒，須是 0 至 253402300799 的整數，再轉毫秒。未知視窗保留為 unknown，無 reset 保留 null。M2 不更新倒數。
 - 丟棄帳號 ID、email、plan、點數、banner 等欄位。區分有效回覆缺少指定額度（N/A）與讀取失敗（保留最近成功值並標 Stale）。
-- 直接合併推送可立即更新，但 sparse 資料與在途回覆需要額外排序規則。建議用有效的 `codex` 或無 ID 推送當刷新訊號，明確排除未知 bucket，保留完整查詢作為 UI 資料源。在途通知合併為一次待辦刷新，遵守最小間隔與退避。
+- M3 只使用有效的 `codex` 或無 ID 推送做刷新訊號。各來源相同的正規化推送會在 session 內去重。這些推送不覆寫快照，在途通知合併為最多一次後續刷新，並尊重最小間隔與恢復退避。完整查詢仍是快照資料源。
 
 Schema 可表達兩種 duration，也可表達只有一個視窗或都缺少。實際帳號是否回傳 300／10080、哪些狀況會產生推送，以及未登入/不支援方案的實際錯誤，仍需另行驗證。 [官方 Rate limits 欄位說明](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt)

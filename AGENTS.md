@@ -1,6 +1,6 @@
 # Codex Quota Monitor
 
-- M1 已核准。M2 僅授權 M2.1–M2.3，M2.4 的真實帳號或 App Server 請求需另行核准。各里程碑以 [實作計畫](docs/IMPLEMENTATION_PLAN.md) 為準。
+- M3 已授權以 mock 開發。M2.4 暫緩，未驗證 Windows OS 層外連隔離前禁止真實帳號或 App Server 請求。各里程碑以 [實作計畫](docs/IMPLEMENTATION_PLAN.md) 為準。
 - 目標是 Windows 10／11 個人用 Electron 懸浮額度監視器。使用 React、TypeScript strict、Vite、npm 與原生 CSS，維持最少依賴。
 - 依 [協定](docs/PROTOCOL.md) 驗證實際 CLI 版本的 schema。僅允許四個固定 outbound 方法，所有認證交由已安裝的官方 Codex。禁止自行讀取憑證、會話、專案資料或改用 HTTP 查詢。
 - 依 [安全設計](docs/SECURITY.md) 維持原生執行檔信任驗證、無 shell 啟動、Electron 隔離與 IPC 驗證。遇到重要安全或技術決策，先列方案、影響與建議。

@@ -66,10 +66,15 @@ export class CodexTransport {
   #timeoutMs: number;
   #maxBytes: number;
   #listeners = new Set<(payload: QuotaBucket) => void>();
+  #onFailure: (() => void) | undefined;
 
   constructor(
     child: TransportProcess,
-    options: { timeoutMs?: number; maxMessageBytes?: number } = {},
+    options: {
+      timeoutMs?: number;
+      maxMessageBytes?: number;
+      onFailure?: () => void;
+    } = {},
   ) {
     this.#child = child;
     this.#timeoutMs = options.timeoutMs ?? 10_000;
@@ -85,6 +90,7 @@ export class CodexTransport {
       throw new Error("Invalid transport limits");
     }
     this.#buffer = Buffer.allocUnsafe(this.#maxBytes);
+    this.#onFailure = options.onFailure;
     child.stdout.on("data", this.#onData);
     child.stdout.on("error", this.#onError);
     child.stdout.on("end", this.#onError);
@@ -140,6 +146,7 @@ export class CodexTransport {
     this.#buffer = Buffer.alloc(0);
     this.#length = 0;
     this.#listeners.clear();
+    this.#onFailure = undefined;
     const child = this.#child;
     child.stdout.off("data", this.#onData);
     child.stdout.off("error", this.#onError);
@@ -150,7 +157,11 @@ export class CodexTransport {
     this.#reject(new Error("Invalid server message"));
   }
 
-  #onError = () => this.close();
+  #onError = () => {
+    const notify = this.#onFailure;
+    this.close();
+    notify?.();
+  };
 
   #reject(error: Error): void {
     if (!this.#pending) return;
@@ -182,7 +193,7 @@ export class CodexTransport {
       try {
         this.#write(method, params, id);
       } catch {
-        this.close();
+        this.#onError();
       }
     });
   }
@@ -210,7 +221,7 @@ export class CodexTransport {
         offset = end + 1;
       }
     } catch {
-      this.close();
+      this.#onError();
     }
   };
 

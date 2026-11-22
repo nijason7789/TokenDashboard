@@ -36,3 +36,7 @@ M1 的 Main 以獨立的記憶體 session 提供 `app://monitor/index.html` 與�
 在 Node.js 24 環境執行 `npm ci`、`npm run build`、`npm start` 可開啟基礎視窗。`npm run test:e2e` 會先建置並由 Playwright 啟動 Electron。首次啟動需取得鎖定版本的 Electron binary。
 
 M2.1–M2.3 的 process、transport、parser 均位於 `src/main/codex`，正式 Main 完全不匯入這些模組。測試以獨立 Node fixture 組裝三者。行程 owner 負責關閉 stdin 與回收子行程，transport 則只清除待處理 RPC、緩衝與監聽器。正式入口在 M2.4 核准前持續顯示來源不可用。
+
+M3 的 `QuotaMonitor` 依賴可取消開啟、讀取、訂閱及關閉的 provider，與 Electron 和 React 無關。正式入口未接線，也無 mock fallback。M2 adapter 只接受注入的 launcher，監控器只接收已驗證的 domain snapshot。
+
+手動刷新共享在途 promise，並尊重恢復退避。有效通知在 1 秒內合併為一次 refresh；在途通知最多保留一次後續工作。請求或連線失效時，先保存 Stale 資料與時間，等舊 provider 釋放資源後才允許替換。關閉或驗證失敗不自動重試；若無法確認清理完成，該監控器拒絕再開啟 session。M3 的 reset 倒數為純函式，沒有額外計時器。
