@@ -13,11 +13,17 @@
 
 ## Windows 執行檔方案
 
+M2.1 選擇 Windows 內建 PowerShell 作獨立驗證程序。固定程式碼以無 profile、非互動方式執行，資料經 stdin 傳入，CLI 由 Node 以固定參數與 `shell:false` 啟動。系統 PowerShell 與 Windows 憑證信任鏈屬於信任邊界。為固定路徑與核對檔案身分，驗證程式以系統 .NET 編譯固定 Win32 互通宣告呼叫 `CreateFileW` 和 `GetFileInformationByHandle`。此方案不需 npm native addon 或隨產品封裝 DLL，但系統政策必須允許 PowerShell `Add-Type`。直接以封裝的原生 helper 呼叫 WinTrust／CreateProcess 可提供更強的啟動前控制，但需維護、簽署及封裝各架構執行檔。固定官方 hash 清單則需隨 CLI 更新，且仍須比對實際映像。
+
 - 直接啟動簽章已驗證的原生 EXE 可符合無 shell 要求。npm 發行也可定位架構對應的官方 vendor EXE，避免執行 shim 或載入外部 Node 程式。兩支本機候選檔均回報 Authenticode Valid，簽署者為 OpenAI OpCo, LLC。版本查詢僅用於相容性判斷。 [官方 npm launcher](https://raw.githubusercontent.com/openai/codex/main/codex-cli/bin/codex.js) · [Node Windows shell 限制](https://nodejs.org/api/child_process.html#spawning-bat-and-cmd-files-on-windows)
-- M2 建議優先驗證系統 WinTrust 實作的可維護性。另一方案是發行版維護可信的官方 SHA-256 清單，實作較小但每次 CLI 更新可能需要更新清單。選定前應證明驗證、本機信任策略與封裝兼容，未達要求時拒絕啟動。M0 的 PowerShell Authenticode 查詢僅是本機研究，產品無 shell fallback。
+- M2.1 由系統 PowerShell 的 `Get-AuthenticodeSignature` 檢查 `Valid` 與 signer certificate。憑證須具預期的 OpenAI OpCo, LLC 主體名稱與組織，允許相同身分的正常憑證輪替。Windows 信任設定和憑證撤銷可用性仍影響判定。驗證程序無結論或逾時時拒絕啟動。
 - CLI 行程可依正常官方機制讀取自身配置。Main 的 RPC allowlist 不等同子行程的網路沙箱。M2 應用隔離測試 profile 追蹤啟動及退出副作用，檢查設定覆寫、MCP 或其他啟動背景行為。若無法證明符合網路與資料邊界，暫不開啟真實 CLI 整合。已具同一使用者權限的惡意程式可置換檔案，驗證與啟動之間仍有競態，應縮短驗證到 spawn 的時間並拒絕不明來源。 [Electron 安全準則](https://www.electronjs.org/docs/latest/tutorial/security) · [Codex 遙測設定](https://learn.chatgpt.com/docs/config-file/config-advanced#observability-and-telemetry)
 
-M2 必須同時驗證 Authenticode 信任鏈、預期 OpenAI 發行者，以及實際啟動映像與已驗證檔案的身分一致（包含檔案置換競態）。候選路徑或版本字串不足以識別映像。未能確認時拒絕或立即終止子行程，且不得使用其 stdio。實作及實機驗證留在 M2。
+驗證程式從根目錄向下取得不共享 delete 的祖先目錄控制代碼，拒絕 reparse point，再唯讀鎖住 PE 檔案以拒絕寫入及刪除。確認 PE executable bit、排除 DLL 並核對機器架構。保持鎖直到從新行程 PID 查詢 OS 的模組路徑，重開此路徑比對 volume/file index 與 SHA-256。驗證快照失敗時立即終止子行程，stdio 不交給 RPC 層。
+
+此順序縮小 TOCTOU 窗口，但 Node spawn 無暫停載入能力，行程可能在比對前執行初始化。OS 回報的映像路徑與鎖住的磁碟檔驗證並非行程映射區段的原子驗證。仍信任 OS、檔案系統及本機信任庫，無法保護已受控制的 OS 或具有同等帳號權限的行程注入。當前版本限系統根為 `C:\Windows` 的 Windows x64／ARM64，拒絕無法使用系統 PowerShell 或 `Add-Type` 的環境。啟動 cwd 固定為系統目錄，僅繼承驗證過的 profile 與 temp 目錄變數。自訂 CODEX_HOME、PATH、API key、代理或端點環境變數未傳入。
+
+本機非 Codex 驗證使用 Windows 內建二進位，觀察到有效簽章但不同發行者的拒絕。另以只在測試程序中接受該 Microsoft 發行者的腳本副本，確認系統 API 可核對該 fixture 的行程與檔案身分。本機探查僅限系統磁碟，跳過一般 junction，再由驗證程序檢查全部路徑控制代碼。官方 CLI 通過完整啟動與身分比對的實測留待 M2.4。Windows 11 與 ARM64 尚未驗證。 [Microsoft Authenticode 文件](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-authenticodesignature?view=powershell-5.1)
 
 ## M1 已實作的邊界
 

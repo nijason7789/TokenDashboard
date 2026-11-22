@@ -12,19 +12,21 @@ App Server 為長駐子行程，固定使用 `app-server --listen stdio://`。st
 
 | 方向 | 方法 | MVP 參數與用途 |
 | --- | --- | --- |
-| 發出 request | `initialize` | 每個新行程一次。固定 `clientInfo` 含 name、title、version，且 `capabilities: null`。驗證回覆結構，丟棄 `codexHome` 等 metadata。 |
+| 發出 request | `initialize` | 每個新行程一次。精確參數 `{"clientInfo":{"name":"codex_quota_monitor","title":"Codex Quota Monitor","version":"0.1.0"},"capabilities":null}`。驗證回覆結構後丟棄 metadata。 |
 | 發出 notification | `initialized` | 成功收到初始化回覆後送出，無 id 或 params。 |
 | 發出 request | `account/read` | `{ "refreshToken": false }`。只保留帳號狀態 enum。空帳號、非 ChatGPT 帳號、傳輸錯誤分別處理，UI 的未登入指引只指向官方 CLI。 |
-| 發出 request | `account/rateLimits/read` | 支援選用 params。建議在驗證版本用 `{ "excludeResetCreditDetails": true }`，減少額外查詢，省略 `supportsLunaReserve`。 |
-| 接收 notification | `account/rateLimits/updated` | `params.rateLimits` 為單 bucket 的 sparse 更新。MVP 用它觸發合併後的唯讀查詢。 |
+| 發出 request | `account/rateLimits/read` | 精確參數 `{"excludeResetCreditDetails":true}`。 |
+| 接收 notification | `account/rateLimits/updated` | `params.rateLimits` 為單 bucket 的 sparse 更新。M2 驗證並輸出正規化事件。 |
 
 發送端只接受上表四個固定建構器。未知通知直接忽略，伺服器主動 request 不執行也不回傳資料，結束該連線並回報安全的狀態。對版本差異採結構驗證及 RPC 錯誤分類。握手回覆未提供可用的協定版本號，不能把 userAgent 當作協定協商。
 
+M2 預設 RPC timeout 10 秒，最多一個在途 RPC、16 個通知訂閱者，單行上限 1 MiB。stdout 按 LF 分幀後才嚴格解碼 UTF-8。非預期、重複與逾時 ID 不結算任何請求。壞資料、超限、意外 server request、EOF 或行程錯誤會關閉 transport 並清理待處理請求；上層 owner 負責回收子行程。僅回傳正規化 domain 資料及帳號狀態 enum。
+
 ## 額度映射
 
-- 完整讀取回覆含 `rateLimits` 舊版單 bucket 及可為 null 的 `rateLimitsByLimitId`。保留 map key 並核對非空 limitId。以 bucket ID 與 duration 共同索引，跨 bucket 的相同長度分開保留。MVP UI 優先選 map 的 `codex`。缺少時只接受 `limitId` 為 `codex` 或 null 的舊版單 bucket。遇到互相矛盾的 bucket ID，回視窗 N/A。未知 bucket 不合併或顯示為通用額度。
+- 完整讀取回覆含 `rateLimits` 舊版單 bucket 及可為 null 的 `rateLimitsByLimitId`。非 null 的 map 為權威資料，最多 64 個 bucket，保留 map key 並核對非 null 的 limitId，矛盾時拒絕回覆。各 bucket 保留自己的視窗，相同長度跨 bucket 並存。當 map 存在，預設只選 `codex`，空 map 為 missing，其餘缺少 `codex` 為 ambiguous。只有 map 缺少或為 null 時才採用 legacy，明確的非 codex ID 為 ambiguous，無 ID 標作 legacy。
 - `primary`、`secondary` 可為 null。掃描兩者，精確以 `windowDurationMins` 的 300／10080 分鐘識別 5 小時／每週。未知長度、缺少長度、同一 bucket 內同長度出現兩筆互相衝突的資料，對應項顯示 N/A。
-- `usedPercent` 是 number。介面只接受有限且介於 0–100 的值，剩餘量為 `100 - usedPercent`。越界代表該欄不可用。Reset 為可空的 Unix 秒，驗證整數與日期範圍後轉毫秒。倒數以本機時間計算，逾期顯示待刷新，直到新快照才更新百分比。
+- `usedPercent` 必須是有限且介於 0–100 的 number，剩餘量為 `100 - usedPercent`。越界或 malformed 欄位拒絕回覆。Reset 為可空的 Unix 秒，須是 0 至 253402300799 的整數，再轉毫秒。未知視窗保留為 unknown，無 reset 保留 null。M2 不更新倒數。
 - 丟棄帳號 ID、email、plan、點數、banner 等欄位。區分有效回覆缺少指定額度（N/A）與讀取失敗（保留最近成功值並標 Stale）。
 - 直接合併推送可立即更新，但 sparse 資料與在途回覆需要額外排序規則。建議用有效的 `codex` 或無 ID 推送當刷新訊號，明確排除未知 bucket，保留完整查詢作為 UI 資料源。在途通知合併為一次待辦刷新，遵守最小間隔與退避。
 

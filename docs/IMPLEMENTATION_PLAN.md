@@ -18,6 +18,23 @@
 
 驗收：unit 覆蓋百分比、維度交換與缺少、時間戳、未知 bucket、壞資料、allowlist、ID、分割 chunk、多訊息、超限與 timeout。integration 覆蓋成功握手、額度讀取、推送、無執行檔、未登入、壞回覆、協定不相容、crash／restart、掛住及乾淨 shutdown。測試相同長度跨 bucket 不碰撞，並驗證預期發行者及實際映像與已驗證檔案的身分一致。確認兩個 CLI 版本在隔離 profile 的握手、startup 預設行為、固定 overrides、安裝路徑解析與信任驗證，測試環境不接觸真實帳號。
 
+M2.1–M2.3 完成 Windows 執行檔驗證及生命週期、stdio transport、bucket parser 和隔離 mock。自動重啟由 M3 處理。正式入口仍回報來源不可用。
+
+### M2.4 提議的 live smoke test
+
+以下只供安全審查，必須取得單獨明確授權。候選為先前離線核對的桌面原生 CLI `%LOCALAPPDATA%\OpenAI\Codex\bin\31fb36cfc4b38f05\codex.exe`（研究時為 `0.171.0-alpha.13`）。執行前核對展開後的絕對路徑、版本、發行者與檔案 SHA-256。若候選已更新、路徑不符或信任無法確認，停止並重新核准候選。由目前版本的 launcher 使用固定 cwd 與最小環境，執行以下精確參數序列。
+
+```json
+["app-server", "--listen", "stdio://", "-c", "analytics.enabled=false", "-c",
+ "otel.exporter=\"none\"", "-c", "otel.trace_exporter=\"none\"", "-c",
+ "otel.metrics_exporter=\"none\""]
+```
+
+1. 在已核准的本機 Windows 使用者環境，以外部監看確認程式本身只走本機 stdio。先用無帳號 profile 排除意外啟動流量。已核准真實測試時，預期只有官方子行程向 OpenAI 帳號／額度服務使用 TLS，Windows 憑證驗證可產生信任鏈或撤銷查詢。第三方目的地、遙測或不明啟動流量立即停止。既有 CLI 設定與管理政策的影響須記錄。
+2. 依 [協定](PROTOCOL.md) 依序送一次 `initialize`、`initialized`、`account/read`。只有 ChatGPT 狀態才送一次 `account/rateLimits/read`。有推送則只驗證結構。任何不符、逾時或 server request 都結束測試。
+3. 報告只記錄退出狀態、方法成功與否、已驗證 duration 是否出現與網路目的地類別，禁止保留百分比、原始 stdout、stderr、email、帳號 ID、憑證資料、Codex home 或完整本機路徑。
+4. 在 finally 關閉 transport 與 stdin。等待 250 ms 後仍未退出則終止，最多再等 5 秒。驗證子行程與驗證程序都已收回，並確認無憑證或 payload 留在測試產物。
+
 ## M3 — 監控服務
 
 組合 polling、手動與推送刷新，加入單一在途 request、退避、重連、Stale 保留及純倒數函式。

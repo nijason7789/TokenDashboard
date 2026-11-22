@@ -34,3 +34,5 @@ React renderer ←→ sandboxed preload ←→ Electron main
 M1 的 Main 以獨立的記憶體 session 提供 `app://monitor/index.html` 與本機建置產物。Preload 只暴露 `window.quotaMonitor.getStatus()`，Main 僅接受擁有視窗的頂層 frame 對固定 channel 發出零參數呼叫。React 測試從測試程式注入標示為 mock 的 fixture，Windows E2E 啟動正常入口並驗證來源不可用。
 
 在 Node.js 24 環境執行 `npm ci`、`npm run build`、`npm start` 可開啟基礎視窗。`npm run test:e2e` 會先建置並由 Playwright 啟動 Electron。首次啟動需取得鎖定版本的 Electron binary。
+
+M2.1–M2.3 的 process、transport、parser 均位於 `src/main/codex`，正式 Main 完全不匯入這些模組。測試以獨立 Node fixture 組裝三者。行程 owner 負責關閉 stdin 與回收子行程，transport 則只清除待處理 RPC、緩衝與監聽器。正式入口在 M2.4 核准前持續顯示來源不可用。
