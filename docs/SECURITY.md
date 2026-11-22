@@ -18,3 +18,7 @@
 - CLI 行程可依正常官方機制讀取自身配置。Main 的 RPC allowlist 不等同子行程的網路沙箱。M2 應用隔離測試 profile 追蹤啟動及退出副作用，檢查設定覆寫、MCP 或其他啟動背景行為。若無法證明符合網路與資料邊界，暫不開啟真實 CLI 整合。已具同一使用者權限的惡意程式可置換檔案，驗證與啟動之間仍有競態，應縮短驗證到 spawn 的時間並拒絕不明來源。 [Electron 安全準則](https://www.electronjs.org/docs/latest/tutorial/security) · [Codex 遙測設定](https://learn.chatgpt.com/docs/config-file/config-advanced#observability-and-telemetry)
 
 M2 必須同時驗證 Authenticode 信任鏈、預期 OpenAI 發行者，以及實際啟動映像與已驗證檔案的身分一致（包含檔案置換競態）。候選路徑或版本字串不足以識別映像。未能確認時拒絕或立即終止子行程，且不得使用其 stdio。實作及實機驗證留在 M2。
+
+## M1 已實作的邊界
+
+開發與正式入口都使用本機建置產物、同一份 CSP 與相同 Electron sandbox 設定。沒有 dev server 或開發環境專用安全例外。Playwright 只在測試啟動時加上其本機偵錯參數。測試 fixture 只在 tests 目錄，應用程式入口永遠回報來源不可用。

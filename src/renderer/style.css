@@ -1,0 +1,27 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #141922;
+  color: #f0f3f9;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+}
+
+main {
+  margin-block-start: 12px;
+}
+
+h1 {
+  margin: 0 0 14px;
+  font-size: 1.25rem;
+}
+
+[role="status"] {
+  padding: 12px 16px;
+  border: 1px solid #3a465b;
+  border-radius: 8px;
+  color: #c0ccde;
+}

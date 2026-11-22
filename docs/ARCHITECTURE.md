@@ -30,3 +30,7 @@ React renderer ←→ sandboxed preload ←→ Electron main
 ## M1 來源隔離
 
 正式入口只組裝正式來源。M1 無正式 quota provider，顯示來源不可用。測試 fixture 只能由測試入口引入，禁止透過執行環境或 IPC 在正式入口切換為 mock。
+
+M1 的 Main 以獨立的記憶體 session 提供 `app://monitor/index.html` 與本機建置產物。Preload 只暴露 `window.quotaMonitor.getStatus()`，Main 僅接受擁有視窗的頂層 frame 對固定 channel 發出零參數呼叫。React 測試從測試程式注入標示為 mock 的 fixture，Windows E2E 啟動正常入口並驗證來源不可用。
+
+在 Node.js 24 環境執行 `npm ci`、`npm run build`、`npm start` 可開啟基礎視窗。`npm run test:e2e` 會先建置並由 Playwright 啟動 Electron。首次啟動需取得鎖定版本的 Electron binary。
