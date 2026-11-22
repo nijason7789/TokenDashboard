@@ -227,7 +227,7 @@ it("does not postpone an idle update during a burst and supports changing interv
   await monitor.stop();
 });
 
-it("waits for an aborted open to release its late session before replacing it", async () => {
+it("quarantines an overdue open and still closes its late session", async () => {
   const { monitor, session, open } = setup();
   let complete!: (value: typeof session) => void;
   open.mockImplementationOnce(
@@ -244,11 +244,37 @@ it("waits for an aborted open to release its late session before replacing it", 
   expect(open).toHaveBeenCalledOnce();
   complete(session);
   await first;
+  await vi.advanceTimersByTimeAsync(0);
   expect(session.read).not.toHaveBeenCalled();
   expect(session.close).toHaveBeenCalledOnce();
-  expect(monitor.status).toEqual({ phase: "error", reason: "timeout" });
+  expect(monitor.status).toEqual({ phase: "error", reason: "cleanup" });
   await monitor.stop();
 });
+
+it.each(["timeout", "stop"])(
+  "finishes %s with a permanently pending provider open",
+  async (mode) => {
+    const { monitor, open, session } = setup();
+    open.mockImplementationOnce(() => new Promise(() => {}));
+    const start = vi.fn();
+    void monitor.start().then(start);
+    await vi.advanceTimersByTimeAsync(0);
+    const stopped = vi.fn();
+    if (mode === "stop") void monitor.stop().then(stopped);
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(start).toHaveBeenCalledOnce();
+    if (mode === "stop") expect(stopped).toHaveBeenCalledOnce();
+    expect(open.mock.calls[0]?.[0].aborted).toBe(true);
+    expect(monitor.status).toEqual({ phase: "error", reason: "cleanup" });
+    await monitor.stop();
+    await monitor.start();
+    await monitor.refresh();
+    await vi.advanceTimersByTimeAsync(300000);
+    expect(open).toHaveBeenCalledOnce();
+    expect(session.close).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
 
 it("does not open another provider when shutdown cannot verify cleanup", async () => {
   const { monitor, session, open, fail } = setup();

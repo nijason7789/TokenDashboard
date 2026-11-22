@@ -17,6 +17,7 @@ export type QuotaStatus =
 const intervals: readonly number[] = [30, 60, 120, 300];
 const retryDelays = [2_000, 4_000, 8_000, 16_000, 30_000];
 const requestTimeoutMs = 10_000;
+const openCleanupGraceMs = 1_000;
 const notificationDelayMs = 1_000;
 
 export function resetCountdownMs(
@@ -35,6 +36,44 @@ function interruptible<T>(promise: Promise<T>, signal: AbortSignal) {
     if (signal.aborted) abort();
     else signal.addEventListener("abort", abort, { once: true });
   });
+}
+
+async function openSession(provider: QuotaProvider, signal: AbortSignal) {
+  const opening = provider.open(signal);
+  try {
+    return await interruptible(opening, signal);
+  } catch (error) {
+    if (!signal.aborted) throw error;
+    // Keep the cleanup attached even if the provider breaks its cancellation
+    // contract. The monitor must never replace an unconfirmed owner.
+    const cleanup = opening.then(
+      (session) => session.close(),
+      (failure: unknown) => {
+        if (
+          failure instanceof QuotaProviderError &&
+          failure.reason === "cleanup"
+        )
+          throw failure;
+      },
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        cleanup,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("Provider ownership unresolved")),
+            openCleanupGraceMs,
+          );
+        }),
+      ]);
+    } catch {
+      throw new QuotaProviderError("cleanup", false);
+    } finally {
+      clearTimeout(timer);
+    }
+    throw error;
+  }
 }
 
 export class QuotaMonitor {
@@ -135,7 +174,7 @@ export class QuotaMonitor {
       if (!this.#connection) {
         if (!this.#data) this.#status = { phase: "connecting" };
         arm();
-        const session = await this.provider.open(operation.signal);
+        const session = await openSession(this.provider, operation.signal);
         const connection: { session: QuotaSession; unsubscribe?: () => void } =
           { session };
         this.#connection = connection;
