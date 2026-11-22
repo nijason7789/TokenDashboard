@@ -4,6 +4,14 @@ type Frame = { url: string };
 type Owner = { mainFrame: Frame };
 
 export function createStatusHandler<T>(owner: Owner, readStatus: () => T) {
+  return createWindowHandler(owner, readStatus, (args) => args.length === 0);
+}
+
+export function createWindowHandler<T>(
+  owner: Owner,
+  action: (...args: unknown[]) => T,
+  valid: (args: unknown[]) => boolean,
+) {
   return (
     event: { sender: Owner; senderFrame: Frame | null },
     ...args: unknown[]
@@ -12,11 +20,11 @@ export function createStatusHandler<T>(owner: Owner, readStatus: () => T) {
       event.sender !== owner ||
       event.senderFrame !== owner.mainFrame ||
       event.senderFrame?.url !== RENDERER_URL ||
-      args.length !== 0
+      !valid(args)
     ) {
       throw new Error("Unauthorized quota request");
     }
 
-    return readStatus();
+    return action(...args);
   };
 }

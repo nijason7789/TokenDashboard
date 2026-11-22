@@ -40,3 +40,9 @@ M2.1–M2.3 的 process、transport、parser 均位於 `src/main/codex`，正式
 M3 的 `QuotaMonitor` 依賴可取消開啟、讀取、訂閱及關閉的 provider，與 Electron 和 React 無關。正式入口未接線，也無 mock fallback。M2 adapter 只接受注入的 launcher，監控器只接收已驗證的 domain snapshot。
 
 手動刷新共享在途 promise，並尊重恢復退避。有效通知在 1 秒內合併為一次 refresh；在途通知最多保留一次後續工作。請求或連線失效時，先保存 Stale 資料與時間，等舊 provider 釋放資源後才允許替換。關閉或驗證失敗不自動重試；若無法確認清理完成，該監控器拒絕再開啟 session。M3 的 reset 倒數為純函式，沒有額外計時器。
+
+## M4 桌面面板
+
+Main 以 DIP 工作區配置無框視窗，並在 display 新增、移除或 metrics 改變時將視窗夾在可見工作區內。視窗狀態在目前執行期間保存。Preload 只提供額度狀態、讀取與設定置頂，以及關閉視窗。Main 驗證每次請求的 sender、頂層 frame、URL 和參數。
+
+測試以監控快照產生顯示 DTO，只映射已選 bucket，保留 missing 與 ambiguous，省略帳號與錯誤細節。正式入口仍回報來源不可用。Normal 顯示兩種百分比語意與重置時間，Compact 保留剩餘量、倒數與控制項。可見視窗內的倒數以本機時鐘更新，沒有額外 RPC。Playwright 透過測試控制端注入帶標籤 fixture。

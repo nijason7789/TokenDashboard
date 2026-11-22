@@ -1,4 +1,5 @@
 import type { QuotaSnapshot } from "../codex/rate-limits";
+export { resetCountdownMs } from "../../shared/contract";
 import {
   QuotaProviderError,
   type QuotaFailure,
@@ -19,13 +20,6 @@ const retryDelays = [2_000, 4_000, 8_000, 16_000, 30_000];
 const requestTimeoutMs = 10_000;
 const openCleanupGraceMs = 1_000;
 const notificationDelayMs = 1_000;
-
-export function resetCountdownMs(
-  resetAtMs: number | null,
-  nowMs: number,
-): number | null {
-  return resetAtMs === null ? null : Math.max(0, resetAtMs - nowMs);
-}
 
 function interruptible<T>(promise: Promise<T>, signal: AbortSignal) {
   return new Promise<T>((resolve, reject) => {

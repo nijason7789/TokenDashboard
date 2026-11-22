@@ -1,8 +1,16 @@
-import { app, BrowserWindow, ipcMain, protocol, session } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  protocol,
+  screen,
+  session,
+} from "electron";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { IPC_CHANNELS, RENDERER_URL } from "../shared/contract";
-import { createStatusHandler } from "./ipc";
+import { createStatusHandler, createWindowHandler } from "./ipc";
+import { visibleBounds } from "./window-bounds";
 
 const csp = [
   "default-src 'none'",
@@ -61,9 +69,22 @@ async function createWindow() {
   renderer.setPermissionCheckHandler(() => false);
   renderer.on("will-download", (event) => event.preventDefault());
 
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const initialBounds = visibleBounds(
+    {
+      x: workArea.x + workArea.width - 380,
+      y: workArea.y + 24,
+      width: 360,
+      height: 360,
+    },
+    [workArea],
+  );
   const window = new BrowserWindow({
-    width: 400,
-    height: 240,
+    ...initialBounds,
+    minWidth: Math.min(300, workArea.width),
+    minHeight: Math.min(240, workArea.height),
+    frame: false,
+    resizable: true,
     show: false,
     backgroundColor: "#141922",
     webPreferences: {
@@ -88,7 +109,51 @@ async function createWindow() {
     IPC_CHANNELS.status,
     createStatusHandler(contents, () => ({ source: "unavailable" as const })),
   );
-  window.on("closed", () => ipcMain.removeHandler(IPC_CHANNELS.status));
+  const noArguments = (args: unknown[]) => args.length === 0;
+  ipcMain.handle(
+    IPC_CHANNELS.getAlwaysOnTop,
+    createWindowHandler(contents, () => window.isAlwaysOnTop(), noArguments),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.setAlwaysOnTop,
+    createWindowHandler(
+      contents,
+      (value) => {
+        window.setAlwaysOnTop(value as boolean);
+        return window.isAlwaysOnTop();
+      },
+      (args) => args.length === 1 && typeof args[0] === "boolean",
+    ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.closeWindow,
+    createWindowHandler(contents, () => window.close(), noArguments),
+  );
+
+  const fitToDisplays = () => {
+    const bounds = window.getBounds();
+    const fitted = visibleBounds(
+      bounds,
+      screen.getAllDisplays().map((display) => display.workArea),
+    );
+    if (
+      bounds.x !== fitted.x ||
+      bounds.y !== fitted.y ||
+      bounds.width !== fitted.width ||
+      bounds.height !== fitted.height
+    )
+      window.setBounds(fitted);
+  };
+  screen.on("display-added", fitToDisplays);
+  screen.on("display-removed", fitToDisplays);
+  screen.on("display-metrics-changed", fitToDisplays);
+  window.on("closed", () => {
+    screen.off("display-added", fitToDisplays);
+    screen.off("display-removed", fitToDisplays);
+    screen.off("display-metrics-changed", fitToDisplays);
+    for (const channel of Object.values(IPC_CHANNELS))
+      ipcMain.removeHandler(channel);
+  });
   await window.loadURL(RENDERER_URL);
   window.show();
 }

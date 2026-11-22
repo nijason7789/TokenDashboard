@@ -13,6 +13,11 @@ const mocks = vi.hoisted(() => {
     on: vi.fn(),
     loadURL: vi.fn(),
     show: vi.fn(),
+    close: vi.fn(),
+    isAlwaysOnTop: vi.fn(() => false),
+    setAlwaysOnTop: vi.fn(),
+    getBounds: vi.fn(() => ({ x: 1400, y: 0, width: 360, height: 340 })),
+    setBounds: vi.fn(),
   };
   const session = {
     protocol: { handle: vi.fn() },
@@ -30,6 +35,16 @@ const mocks = vi.hoisted(() => {
     ipc: { handle: vi.fn(), removeHandler: vi.fn() },
     readFile: vi.fn(async () => new Uint8Array()),
     exit: vi.fn(),
+    screen: {
+      getPrimaryDisplay: vi.fn(() => ({
+        workArea: { x: 0, y: 0, width: 1280, height: 720 },
+      })),
+      getAllDisplays: vi.fn(() => [
+        { workArea: { x: 0, y: 0, width: 1280, height: 720 } },
+      ]),
+      on: vi.fn(),
+      off: vi.fn(),
+    },
   };
 });
 
@@ -39,6 +54,7 @@ vi.mock("electron", () => ({
   ipcMain: mocks.ipc,
   protocol: { registerSchemesAsPrivileged: vi.fn() },
   session: { fromPartition: () => mocks.session },
+  screen: mocks.screen,
 }));
 vi.mock("node:fs/promises", () => ({
   readdir: async () => [
@@ -56,6 +72,8 @@ it("wires the production boundaries and denies requests outside the asset and IP
   expect(mocks.exit).not.toHaveBeenCalled();
   expect(mocks.createWindow).toHaveBeenCalledWith(
     expect.objectContaining({
+      frame: false,
+      resizable: true,
       webPreferences: expect.objectContaining({
         contextIsolation: true,
         sandbox: true,
@@ -124,7 +142,7 @@ it("wires the production boundaries and denies requests outside the asset and IP
   expect(gate).toHaveBeenCalledExactlyOnceWith({ cancel: true });
 
   const [channel, read] = mocks.ipc.handle.mock.calls[0]!;
-  expect(mocks.ipc.handle).toHaveBeenCalledOnce();
+  expect(mocks.ipc.handle).toHaveBeenCalledTimes(4);
   expect(channel).toBe("quota:status");
   const sender = mocks.window.webContents;
   expect(() =>
@@ -136,6 +154,35 @@ it("wires the production boundaries and denies requests outside the asset and IP
   expect(read({ sender, senderFrame: sender.mainFrame })).toEqual({
     source: "unavailable",
   });
-  mocks.window.on.mock.calls[0]![1]();
-  expect(mocks.ipc.removeHandler).toHaveBeenCalledExactlyOnceWith(channel);
+  const windowHandler = (channel: string) =>
+    mocks.ipc.handle.mock.calls.find(([name]) => name === channel)![1];
+  expect(
+    windowHandler("window:get-always-on-top")({
+      sender,
+      senderFrame: sender.mainFrame,
+    }),
+  ).toBe(false);
+  windowHandler("window:set-always-on-top")(
+    { sender, senderFrame: sender.mainFrame },
+    true,
+  );
+  expect(mocks.window.setAlwaysOnTop).toHaveBeenCalledWith(true);
+  expect(() =>
+    windowHandler("window:set-always-on-top")(
+      { sender, senderFrame: sender.mainFrame },
+      "true",
+    ),
+  ).toThrow();
+  windowHandler("window:close")({ sender, senderFrame: sender.mainFrame });
+  expect(mocks.window.close).toHaveBeenCalledOnce();
+  mocks.screen.on.mock.calls[0]![1]();
+  expect(mocks.window.setBounds).toHaveBeenCalledWith({
+    x: 920,
+    y: 0,
+    width: 360,
+    height: 340,
+  });
+  mocks.window.on.mock.calls.find(([name]) => name === "closed")![1]();
+  expect(mocks.ipc.removeHandler).toHaveBeenCalledTimes(4);
+  expect(mocks.screen.off).toHaveBeenCalledTimes(3);
 });

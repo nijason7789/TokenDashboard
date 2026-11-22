@@ -1,27 +1,227 @@
+* {
+  box-sizing: border-box;
+}
 :root {
   color-scheme: dark;
-  font-family: system-ui, sans-serif;
-  background: #141922;
-  color: #f0f3f9;
+  font:
+    14px "Segoe UI",
+    system-ui,
+    sans-serif;
+  background: #10131a;
+  color: #e9edf5;
+  --muted: #a8b3c6;
+  --line: #2b3445;
+  --green: #5fd5a4;
+  --yellow: #f1bf69;
+  --red: #f28289;
 }
-
 body {
   margin: 0;
-  padding: 24px;
 }
-
-main {
-  margin-block-start: 12px;
+button {
+  font: inherit;
 }
-
+.titlebar {
+  -webkit-app-region: drag;
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: #151a24;
+  user-select: none;
+}
+.brand,
+.controls,
+.summary,
+.status,
+.quota-heading,
+.quota-value {
+  display: flex;
+  align-items: center;
+}
+.brand {
+  gap: 8px;
+}
+.mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid #355b56;
+  border-radius: 5px;
+  color: var(--green);
+  background: #1a2c31;
+  font:
+    700 0.9rem Consolas,
+    monospace;
+}
 h1 {
-  margin: 0 0 14px;
-  font-size: 1.25rem;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
 }
-
-[role="status"] {
-  padding: 12px 16px;
-  border: 1px solid #3a465b;
+.controls {
+  gap: 2px;
+}
+.controls button {
+  -webkit-app-region: no-drag;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+.controls button:hover,
+.controls button[aria-pressed="true"] {
+  color: #e9edf5;
+  background: #253042;
+  border-color: #35435a;
+}
+.controls button:focus-visible {
+  outline: 2px solid #80b6f8;
+  outline-offset: 1px;
+}
+.controls .close:hover {
+  background: #713d47;
+}
+.controls button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.content {
+  padding: 14px;
+}
+.summary {
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.status {
+  gap: 7px;
+  font-size: 0.83rem;
+  color: var(--muted);
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #77849a;
+}
+.status[data-phase="connected"] .dot {
+  background: var(--green);
+}
+.status[data-phase="stale"] .dot,
+.status[data-phase="connecting"] .dot {
+  background: var(--yellow);
+}
+.status[data-phase="error"] .dot {
+  background: var(--red);
+}
+.mock-label {
+  padding: 2px 6px;
+  border: 1px solid #52466e;
+  border-radius: 4px;
+  color: #d3baf4;
+  font:
+    0.73rem Consolas,
+    monospace;
+}
+.quotas {
+  display: grid;
+  gap: 8px;
+}
+.quota-card {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  color: #c0ccde;
+  background: #181e29;
+}
+.quota-heading {
+  justify-content: space-between;
+  gap: 5px;
+}
+h2 {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+.quota-heading span,
+.quota-value span,
+.quota-meta,
+footer,
+[role="alert"] {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.quota-value {
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+.quota-value strong {
+  color: var(--meter, #b8c2d3);
+  font-size: 1.55rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+[data-tone="green"] {
+  --meter: var(--green);
+}
+[data-tone="yellow"] {
+  --meter: var(--yellow);
+}
+[data-tone="red"] {
+  --meter: var(--red);
+}
+.meter {
+  display: block;
+  width: 100%;
+  height: 5px;
+  border: 0;
+  border-radius: 5px;
+  overflow: hidden;
+  appearance: none;
+  background: #30394a;
+}
+progress::-webkit-progress-bar {
+  background: #30394a;
+}
+progress::-webkit-progress-value {
+  background: var(--meter);
+  border-radius: 5px;
+}
+.quota-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 7px;
+}
+.quota-meta time,
+footer time {
+  color: #c0cbdb;
+}
+footer {
+  margin-top: 9px;
+}
+[role="alert"] {
+  margin: 8px 0 0;
+  color: var(--red);
+}
+.compact .quotas {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.compact .quota-card {
+  padding: 9px;
+}
+.compact .quota-value {
+  flex-wrap: wrap;
+  gap: 2px 5px;
 }

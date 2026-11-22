@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createStatusHandler } from "../src/main/ipc";
+import { createStatusHandler, createWindowHandler } from "../src/main/ipc";
 import { IPC_CHANNELS, RENDERER_URL } from "../src/shared/contract";
 
 const mainFrame = { url: RENDERER_URL };
@@ -9,7 +9,12 @@ const handle = createStatusHandler(owner, read);
 
 describe("status IPC", () => {
   it("accepts only the owning top frame, exact URL and zero arguments", () => {
-    expect(IPC_CHANNELS).toEqual({ status: "quota:status" });
+    expect(IPC_CHANNELS).toEqual({
+      status: "quota:status",
+      getAlwaysOnTop: "window:get-always-on-top",
+      setAlwaysOnTop: "window:set-always-on-top",
+      closeWindow: "window:close",
+    });
     expect(handle({ sender: owner, senderFrame: mainFrame })).toEqual({
       source: "unavailable",
     });
@@ -42,4 +47,23 @@ describe("status IPC", () => {
       createStatusHandler(sender, read)({ sender, senderFrame: frame }),
     ).toThrow();
   });
+});
+
+it("requires one boolean for the pin operation and rejects untrusted senders", () => {
+  const action = vi.fn();
+  const handle = createWindowHandler(
+    owner,
+    action,
+    (args) => args.length === 1 && typeof args[0] === "boolean",
+  );
+  const event = { sender: owner, senderFrame: mainFrame };
+  handle(event, true);
+  expect(action).toHaveBeenCalledExactlyOnceWith(true);
+  for (const args of [[], [1], ["true"], [false, true], [null]]) {
+    expect(() => handle(event, ...args)).toThrow();
+  }
+  expect(() =>
+    handle({ sender: { mainFrame }, senderFrame: mainFrame }, true),
+  ).toThrow();
+  expect(action).toHaveBeenCalledOnce();
 });
