@@ -31,6 +31,14 @@ M2.1 選擇 Windows 內建 PowerShell 作獨立驗證程序。固定程式碼以
 
 相容環境為使用 `C:\Windows` 的 Windows x64／ARM64 與內建 Windows PowerShell 5.1，需允許 `Add-Type`、可寫入本機暫存資料夾，且執行帳號需能開啟候選檔與每層祖先目錄。Windows 10 x64 為本機驗證環境，Windows 11／ARM64 尚未驗證。其他系統根會回報驗證不可用。無可用候選時回報找不到執行檔。驗證程式、存取權限、簽章或發行者任何一項失敗，一律回報無法建立信任；啟動後身分不符則回報映像無法驗證。錯誤不附路徑或原始 stderr，也不切換至 shim 或較弱的驗證方式。
 
+## App Server 啟動網路調查（499091b）
+
+- **來源。** 對照已測 Windows CLI 的 `rust-v0.171.0-alpha.13`，App Server 建立 message processor 時會啟動 plugin startup tasks。Plugins 預設啟用，未登入時無可用的遠端全域目錄，因而啟動 `plugins-curated-repo-sync`。該工作先執行 `git ls-remote https://github.com/openai/plugins.git HEAD`，Git 可產生 `git-remote-https`。Git 失敗後嘗試 GitHub API，沒有本機快照時還可嘗試 OpenAI 的 curated export。Git 使用 Codex home 下的暫存 repo。這是該版本官方原始碼中的預設行為，App Server 的帳號與額度協定文件沒有承諾啟動期間不連網。 [App Server 啟動](https://github.com/openai/codex/blob/581161ab41e643d942e1e1b5f561034060bf18e3/codex-rs/app-server/src/message_processor.rs#L591-L610) · [啟動條件](https://github.com/openai/codex/blob/581161ab41e643d942e1e1b5f561034060bf18e3/codex-rs/core-plugins/src/manager.rs#L923-L949) · [Git 與 HTTP fallback](https://github.com/openai/codex/blob/581161ab41e643d942e1e1b5f561034060bf18e3/codex-rs/core-plugins/src/startup_sync.rs#L96-L165)
+- **支援的控制。** 空白 profile 的 `config.toml` 使用 `[features]` 下的 `plugins = false`。若未來採用單一行程覆寫，文件支援 `-c features.plugins=false`，不必更動使用者設定。此開關會一起略過 curated sync 與已設定 marketplace 的啟動工作。只關閉 `remote_plugin` 不能阻止本機 curated fallback，遙測與更新設定也各有不同管轄範圍。沒有採用 debug-only flag 或內部環境變數。 [CLI 設定與 feature 選項](https://learn.chatgpt.com/docs/cli/reference) · [版本固定的啟動 gate](https://github.com/openai/codex/blob/581161ab41e643d942e1e1b5f561034060bf18e3/codex-rs/core-plugins/src/manager.rs#L3139-L3163)
+- **Windows A/B。** 使用相同的簽章驗證、映像身分檢查、空白 profile、stdio 參數和臨時 Git 設定。測試代理只在 loopback 接收與拒絕 HTTP `CONNECT`，不轉送。預設設定收到對 `github.com:443`、`api.github.com:443` 與 `chatgpt.com:443` 的請求，與原始碼中的回退順序一致。停用 plugins 時觀察窗內未收到代理請求。兩組握手及一次未登入狀態讀取均成功，行程退出碼為 0。前次 `127.0.0.1:1` 是測試指定的代理／端點，不能從該 TCP 位址單獨確定遠端目的地。Windows A/B 驗證的是應用層代理行為，Windows Sandbox 啟動程式不存在，桌面帳號也無管理員防火牆權限。
+- **OS 隔離交叉驗證。** Ubuntu WSL 中使用同版官方 Linux x64 App Server 發行檔，下載後先核對發行頁的 SHA-256。以 `unshare` 建立獨立 network 與 PID namespace，只有 loopback、無 IPv4 路由，對 TEST-NET 位址的 probe 由核心回報 `ENETUNREACH`。預設組的臨時 Git Trace2 記錄 3 次 Git 啟動並出現指定 marketplace 查詢，停用 plugins 組為 0 次。兩組均完成未登入握手及帳號狀態查詢，退出碼為 0。只保留計數，測試後刪除臨時資料。此結果覆蓋同版 Linux 發行檔，Windows 實際映像的 OS egress 驗證仍待完成。 [官方發行檔與校驗值](https://github.com/openai/codex/releases/expanded_assets/rust-v0.171.0-alpha.13)
+- **額度監視器風險。** 預設啟動的 Git、遠端目錄 HTTP 與快取寫入皆與唯讀額度需求無關。這會增加外連、遠端輸入與子行程的範圍，亦可能受系統 Git 設定、代理或管控政策影響。未觀察到資料傳出或已登入操作。停用 plugins 可縮小已確認的範圍，但 RPC 白名單和 feature flag 都無法強制管制其他背景網路流量。未來若核准正式 launcher，先評估以行程層覆寫停用 plugins，並在可稽核 egress 規則下重新確認 exact Windows binary 的行為。意外連線與管理政策覆寫仍須納入驗收。
+
 ## M1 已實作的邊界
 
 開發與正式入口都使用本機建置產物、同一份 CSP 與相同 Electron sandbox 設定。沒有 dev server 或開發環境專用安全例外。Playwright 只在測試啟動時加上其本機偵錯參數。測試 fixture 只在 tests 目錄，應用程式入口永遠回報來源不可用。

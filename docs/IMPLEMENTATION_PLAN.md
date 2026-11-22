@@ -40,7 +40,7 @@ M2.1–M2.3 完成 Windows 執行檔驗證及生命週期、stdio transport、bu
 - 2026-11-22，Windows 10 x64。核對上述指定路徑，SHA-256 為 `4069acdd8d101830f63ea5e2775883bfecf8a152ae87ee1b0ef9f14204f850f9`，Authenticode 為 Valid，發行者為 OpenAI OpCo, LLC。受限工作階段第一次執行在使用者 profile 祖先目錄鎖取得時收到 Win32 error 5。未啟動 Codex，驗證程序已回收。桌面工作階段沿用同一信任門檻後通過。
 - 測試透過現有 launcher 比對完整固定參數與實際 PID 映像。測試 harness 單獨覆寫子行程 cwd、profile、暫存目錄與 `CODEX_HOME` 到新建目錄，使用記憶體認證儲存、關閉更新檢查，將端點與 HTTP 代理指向未提供服務的 `127.0.0.1:1`。確認握手回報臨時 Codex home 後，只送一次 `account/read`，結果為未登入。未發送額度或登入請求。臨時 profile 出現 SQLite、沙箱與技能相關檔案；僅列舉檔名，未開啟內容。 [OpenAI CLI 設定參考](https://learn.chatgpt.com/docs/config-file/config-reference)
 - 第二次成功執行有 62 次 TCP／UDP 快照。Codex 與 `git-remote-https.exe` 都曾對 `127.0.0.1:1` 出現 TCP `SYN_SENT`，未觀察到 UDP 或非 loopback 連線。行程樹快照見三個 `git.exe`、一個 `git-remote-https.exe`、兩個 `conhost.exe`。Codex 以 exit 0 結束，驗證程序與六個已觀察子孫行程的 PID 均確認退出，臨時 profile 已移除。
-- 快照可能漏掉短連線、短命行程或系統服務流量。Loopback 設定也不是 OS egress 隔離。應先釐清啟動時的 Git 與網路嘗試來源，並在可控制 egress 的隔離環境確認再決定是否授權 authenticated smoke test。此輪未取得該授權。
+- 快照可能漏掉短連線、短命行程或系統服務流量。Loopback 設定也不是 OS egress 隔離。後續釐清結果見 [啟動網路調查](SECURITY.md#app-server-啟動網路調查499091b)。Authenticated smoke test 仍需另行授權。
 
 ## M3 — 監控服務
 
