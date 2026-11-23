@@ -1,7 +1,8 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   LowQuotaNotifications,
   type NotificationQuota,
+  type NotificationState,
 } from "../src/main/quota-notifications";
 import { DEFAULT_SETTINGS } from "../src/shared/settings";
 
@@ -153,4 +154,34 @@ it("restores only bounded hashed interval state and suppresses notifications aft
       { key: state[0]!.key, resetsAtMs: NaN },
     ]).snapshot(),
   ).toEqual([]);
+});
+
+it("allows retry after failed persistence and keeps concurrent and restarted delivery deduplicated", async () => {
+  const policy = new LowQuotaNotifications();
+  const persist = vi.fn<(state: NotificationState) => Promise<void>>(
+    async () => {},
+  );
+  persist.mockRejectedValueOnce(new Error("disk unavailable"));
+  await expect(
+    policy.persistAndCollect(low, settings, persist, 0),
+  ).rejects.toThrow();
+  expect(policy.snapshot()).toEqual([]);
+  const results = await Promise.all([
+    policy.persistAndCollect(low, settings, persist, 1),
+    policy.persistAndCollect(low, settings, persist, 1),
+  ]);
+  expect(results).toEqual([["5-hour limit", "Weekly limit"], []]);
+  expect(persist).toHaveBeenCalledTimes(2);
+  const restarted = new LowQuotaNotifications(persist.mock.calls[1]?.[0]);
+  expect(await restarted.persistAndCollect(low, settings, persist, 2)).toEqual(
+    [],
+  );
+  expect(
+    await restarted.persistAndCollect(
+      { ...low, bucketId: "second-bucket" },
+      settings,
+      persist,
+      2,
+    ),
+  ).toEqual(["5-hour limit", "Weekly limit"]);
 });

@@ -140,19 +140,16 @@ async function createWindow() {
     if (settings.lowQuotaNotification && Notification.isSupported()) {
       void serialize(async () => {
         if (quitting) return;
-        const labels = quotaNotifications.collect(current, settings);
-        if (!labels.length) return;
-        await store.save(
+        const labels = await quotaNotifications.persistAndCollect(
+          current,
           settings,
-          window.getNormalBounds(),
-          quotaNotifications.snapshot(),
+          (state) => store.save(settings, window.getNormalBounds(), state),
         );
-        if (!quitting)
-          for (const label of labels)
-            new Notification({
-              title: "Codex quota",
-              body: label + " is below your threshold.",
-            }).show();
+        for (const label of labels)
+          new Notification({
+            title: "Codex quota",
+            body: label + " is below your threshold.",
+          }).show();
       }).catch(() => console.error("Could not record quota notifications."));
     }
     return status;
@@ -170,21 +167,27 @@ async function createWindow() {
     );
     return next;
   };
-  const loginOptions = {
-    args: app.isPackaged ? [] : ['"' + app.getAppPath() + '"'],
-  };
+  const loginOptions = { path: process.execPath, args: [] };
   const setStartup = (enabled: boolean) => {
-    if (process.platform !== "win32")
-      throw new Error("Startup settings unavailable");
     app.setLoginItemSettings({ ...loginOptions, openAtLogin: enabled });
     if (app.getLoginItemSettings(loginOptions).openAtLogin !== enabled)
       throw new Error("Startup settings unavailable");
   };
-  const updateSettings = (patch: SettingsPatch) =>
+  const updateSettings = (patch: SettingsPatch | (() => SettingsPatch)) =>
     serialize(async () => {
       if (quitting) throw new Error("Settings unavailable");
-      const next = { ...settings, ...patch };
+      const next = {
+        ...settings,
+        ...(typeof patch === "function" ? patch() : patch),
+      };
       const startupChanged = next.launchOnStartup !== settings.launchOnStartup;
+      if (
+        startupChanged &&
+        (process.platform !== "win32" ||
+          !app.isPackaged ||
+          process.env.PORTABLE_EXECUTABLE_FILE !== undefined)
+      )
+        throw new Error("Startup settings unavailable");
       const pinChanged = next.alwaysOnTop !== settings.alwaysOnTop;
       try {
         if (startupChanged) setStartup(next.launchOnStartup);
@@ -300,7 +303,7 @@ async function createWindow() {
   tray.setToolTip("Codex Quota Monitor");
   const updateMenu = () => {
     if (quitting) return;
-    const apply = (patch: SettingsPatch) => {
+    const apply = (patch: () => SettingsPatch) => {
       void updateSettings(patch).catch(() =>
         console.error("Could not save tray settings."),
       );
@@ -310,8 +313,9 @@ async function createWindow() {
         trayMenu(window.isVisible(), settings, {
           toggleVisibility,
           refresh,
-          togglePin: () => apply({ alwaysOnTop: !settings.alwaysOnTop }),
-          toggleCompact: () => apply({ compact: !settings.compact }),
+          togglePin: () =>
+            apply(() => ({ alwaysOnTop: !settings.alwaysOnTop })),
+          toggleCompact: () => apply(() => ({ compact: !settings.compact })),
           openSettings: () => {
             if (!quitting) {
               show();

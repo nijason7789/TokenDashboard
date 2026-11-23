@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => {
     readFile: vi.fn(async () => new Uint8Array()),
     exit: vi.fn(),
     quit: vi.fn(),
+    packaged: false,
     appOn: vi.fn(),
     appOff: vi.fn(),
     save: vi.fn(async () => {}),
@@ -81,6 +82,9 @@ vi.mock("electron", () => ({
     quit: mocks.quit,
     getPath: () => "test-profile",
     getAppPath: () => "test-app",
+    get isPackaged() {
+      return mocks.packaged;
+    },
     requestSingleInstanceLock: () => true,
     setLoginItemSettings: mocks.setLoginItemSettings,
     getLoginItemSettings: mocks.getLoginItemSettings,
@@ -253,10 +257,26 @@ it("wires the production boundaries and denies requests outside the asset and IP
   );
   expect(windowHandler("settings:get")(event).opacity).toBe(0.8);
   if (process.platform === "win32") {
+    await expect(update(event, { launchOnStartup: true })).rejects.toThrow(
+      "Startup settings unavailable",
+    );
+    expect(mocks.setLoginItemSettings).not.toHaveBeenCalled();
+    mocks.packaged = true;
+    vi.stubEnv("PORTABLE_EXECUTABLE_FILE", "C:\\fixture\\portable.exe");
+    await expect(update(event, { launchOnStartup: true })).rejects.toThrow(
+      "Startup settings unavailable",
+    );
+    expect(mocks.setLoginItemSettings).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
     await update(event, { launchOnStartup: true });
     expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
       openAtLogin: true,
-      args: ['"test-app"'],
+      path: process.execPath,
+      args: [],
+    });
+    expect(mocks.getLoginItemSettings).toHaveBeenCalledWith({
+      path: process.execPath,
+      args: [],
     });
   }
   mocks.screen.on.mock.calls[0]![1]();
@@ -267,6 +287,25 @@ it("wires the production boundaries and denies requests outside the asset and IP
     height: 340,
   });
   expect(mocks.createTray).toHaveBeenCalledOnce();
+  const compactItem = mocks.tray.setContextMenu.mock.lastCall?.[0].find(
+    (item: { label?: string }) => item.label === "Compact mode",
+  );
+  const savesBeforeToggles = mocks.save.mock.calls.length;
+  compactItem.click();
+  compactItem.click();
+  await vi.waitFor(() =>
+    expect(mocks.save.mock.calls.length).toBe(savesBeforeToggles + 2),
+  );
+  expect(mocks.save).toHaveBeenNthCalledWith(
+    savesBeforeToggles + 1,
+    expect.objectContaining({ compact: false }),
+    expect.any(Object),
+  );
+  expect(mocks.save).toHaveBeenNthCalledWith(
+    savesBeforeToggles + 2,
+    expect.objectContaining({ compact: true }),
+    expect.any(Object),
+  );
   const preventDefault = vi.fn();
   const windowEvent = (name: string) =>
     mocks.window.on.mock.calls.find(([candidate]) => name === candidate)![1];

@@ -115,26 +115,28 @@ export class SettingsStore {
       throw new Error("Invalid window bounds");
     const snapshot: SavedSettings = { settings: { ...settings } };
     if (bounds) snapshot.bounds = copyBounds(bounds);
-    if (notificationState !== undefined)
-      this.#notificationState = validatedNotificationState(notificationState);
-    if (this.#notificationState.length)
-      snapshot.notificationState = [...this.#notificationState];
-    const body = JSON.stringify(snapshot);
+    const proposed =
+      notificationState === undefined
+        ? undefined
+        : validatedNotificationState(notificationState);
     const write = this.#pending
       .catch(() => {})
       .then(async () => {
+        const state = proposed ?? this.#notificationState;
+        if (state.length) snapshot.notificationState = [...state];
         const temporary = join(
           this.directory,
           "preferences-" + randomUUID() + ".tmp",
         );
         try {
           await this.storage.mkdir(this.directory, { recursive: true });
-          await this.storage.writeFile(temporary, body, {
+          await this.storage.writeFile(temporary, JSON.stringify(snapshot), {
             encoding: "utf8",
             flag: "wx",
             mode: 0o600,
           });
           await this.storage.rename(temporary, this.#path);
+          this.#notificationState = state;
         } catch {
           throw new Error("Could not save preferences");
         } finally {

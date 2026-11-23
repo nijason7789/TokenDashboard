@@ -70,6 +70,8 @@ M5 將 F-07 的固定事件、F-08 的可見分鐘倒數與 F-09 的負座標、
 
 ## M6 — 安全審查與發行
 
+F-10 至 F-12、M6 發行前實測、待驗證平台與發行阻擋條件見 [M6 稽核](M6_PRE_RELEASE_AUDIT.md)。
+
 執行全套 unit、component、integration 與 Windows E2E。核心 branch coverage 目標 ≥90%，overall 目標 ≥80%，記錄未覆蓋的安全路徑。檢查 renderer、IPC、子行程、網路、持久化與依賴稽核，記錄 advisory 和影響，禁止盲目 force fix。
 
 驗收：electron-builder 產出 Windows portable EXE 與 SHA-256，實際於 Windows 10／11 以非管理員啟動。附 README、已支援版本、手動驗收清單與測試結果。量測 App 行程群和 Codex 子行程的 CPU 及記憶體，記錄機型、版本、取樣間隔、時長、前景／隱藏及退避環境，檢查退出後無殘留，交代未測項目。真實帳號 smoke test 獨立、預設關閉，待明確同意才執行。

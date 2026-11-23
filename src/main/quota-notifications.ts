@@ -26,6 +26,7 @@ export function notificationState(input: unknown): NotificationState {
 
 export class LowQuotaNotifications {
   #sent = new Map<string, number>();
+  #writes = Promise.resolve();
 
   constructor(initial?: unknown) {
     for (const { key, resetsAtMs } of notificationState(initial))
@@ -34,6 +35,27 @@ export class LowQuotaNotifications {
 
   snapshot(): NotificationState {
     return [...this.#sent].map(([key, resetsAtMs]) => ({ key, resetsAtMs }));
+  }
+
+  persistAndCollect(
+    status: NotificationQuota,
+    settings: Settings,
+    persist: (state: NotificationState) => Promise<void>,
+    nowMs = Date.now(),
+  ): Promise<string[]> {
+    const write = this.#writes.then(async () => {
+      const candidate = new LowQuotaNotifications(this.snapshot());
+      const labels = candidate.collect(status, settings, nowMs);
+      if (!labels.length) return labels;
+      await persist(candidate.snapshot());
+      this.#sent = candidate.#sent;
+      return labels;
+    });
+    this.#writes = write.then(
+      () => {},
+      () => {},
+    );
+    return write;
   }
 
   collect(

@@ -438,3 +438,82 @@ it("does not overwrite a saved preference with an older initial settings read", 
   await act(async () => loaded({ ...DEFAULT_SETTINGS }));
   expect(screen.getByRole("button", { name: "Normal mode" })).toBeTruthy();
 });
+
+it("disables every settings control until a preference write settles", async () => {
+  const provider = api(mock);
+  let complete!: (value: Settings) => void;
+  provider.updateSettings.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  render(<App api={provider} />);
+  await screen.findByText("Mock data");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  fireEvent.change(screen.getByLabelText("Refresh interval"), {
+    target: { value: "120" },
+  });
+  expect(
+    (screen.getByRole("button", { name: "Always on top" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Compact mode" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(
+    (
+      screen
+        .getByLabelText("Refresh interval")
+        .closest("fieldset") as HTMLFieldSetElement
+    ).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Always on top" }));
+  expect(provider.setAlwaysOnTop).not.toHaveBeenCalled();
+  await act(async () =>
+    complete({ ...DEFAULT_SETTINGS, refreshInterval: 120 }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Always on top" }));
+  await act(async () => {});
+  expect(provider.setAlwaysOnTop).toHaveBeenCalledExactlyOnceWith(true);
+});
+
+it("disables competing preference writes while a pin change is pending and unlocks after failure", async () => {
+  const provider = api(mock);
+  let fail!: (error: Error) => void;
+  provider.setAlwaysOnTop.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+  );
+  render(<App api={provider} />);
+  await screen.findByText("Mock data");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  fireEvent.click(screen.getByRole("button", { name: "Always on top" }));
+  expect(
+    (screen.getByRole("button", { name: "Compact mode" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(
+    (
+      screen
+        .getByLabelText("Refresh interval")
+        .closest("fieldset") as HTMLFieldSetElement
+    ).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Compact mode" }));
+  expect(provider.updateSettings).not.toHaveBeenCalled();
+  await act(async () => fail(new Error("private detail")));
+  expect(screen.getByText("Window control unavailable")).toBeTruthy();
+  expect(
+    (screen.getByRole("button", { name: "Compact mode" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Compact mode" }));
+  await act(async () => {});
+  expect(provider.updateSettings).toHaveBeenCalledExactlyOnceWith({
+    compact: true,
+  });
+});

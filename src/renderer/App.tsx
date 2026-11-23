@@ -243,6 +243,8 @@ export function App({ api }: { api: QuotaApi }) {
   }
 
   async function togglePin() {
+    if (settingsPending.current) return;
+    settingsPending.current = true;
     const token = epoch.current;
     const revision = ++settingsRevision.current;
     setPinning(true);
@@ -254,7 +256,10 @@ export function App({ api }: { api: QuotaApi }) {
     } catch {
       if (epoch.current === token) setControlError(true);
     } finally {
-      if (epoch.current === token) setPinning(false);
+      if (epoch.current === token) {
+        settingsPending.current = false;
+        setPinning(false);
+      }
     }
   }
 
@@ -286,7 +291,7 @@ export function App({ api }: { api: QuotaApi }) {
             aria-label={modeName}
             title={modeName}
             aria-pressed={compact}
-            disabled={saving}
+            disabled={saving || pinning}
             onClick={() => void saveSettings({ compact: !compact })}
           >
             ▤
@@ -302,7 +307,7 @@ export function App({ api }: { api: QuotaApi }) {
             aria-label="Always on top"
             title="Always on top"
             aria-pressed={pinned}
-            disabled={pinning}
+            disabled={saving || pinning}
             onClick={() => void togglePin()}
           >
             ↑
@@ -357,7 +362,7 @@ export function App({ api }: { api: QuotaApi }) {
         {settingsOpen && (
           <SettingsPanel
             settings={settings}
-            saving={saving}
+            saving={saving || pinning}
             onChange={(patch) => void saveSettings(patch)}
             onClose={() => setSettingsOpen(false)}
           />

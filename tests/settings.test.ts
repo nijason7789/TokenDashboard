@@ -160,3 +160,17 @@ it("replaces preferences atomically through the actual local filesystem", async 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("does not carry a failed notification state into a later settings-only write", async () => {
+  const disk = storage();
+  const store = new SettingsStore("fixture", disk);
+  const notificationState = [{ key: "a".repeat(64), resetsAtMs: 5000 }];
+  disk.rename.mockRejectedValueOnce(new Error("disk unavailable"));
+  const failed = store.save(DEFAULT_SETTINGS, undefined, notificationState);
+  const unrelated = store.save({ ...DEFAULT_SETTINGS, compact: true });
+  await expect(failed).rejects.toThrow("Could not save preferences");
+  await unrelated;
+  expect(
+    (await new SettingsStore("fixture", disk).load()).notificationState,
+  ).toBeUndefined();
+});
