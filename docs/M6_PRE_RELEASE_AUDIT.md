@@ -42,3 +42,5 @@ Windows active firewall profiles 先前測得預設 AllowOutbound，且沒有驗
 恢復測試前須在同一隔離的 Windows 環境證明非允許目的地遭拒，且官方帳號與額度端點仍可達。再核對指定 executable 的簽章、發行者、實際啟動映像與固定 `features.plugins=false`，並依當時的帳號授權只進行各一次允許的唯讀請求。未達這些條件時禁止執行。
 
 [官方 setup-node v6.3.0](https://github.com/actions/setup-node/releases/tag/v6.3.0) · [Electron 登入項](https://www.electronjs.org/docs/latest/api/app#appsetloginitemsettingssettings-macos-windows) · [Electron Builder Portable](https://www.electron.build/docs/nsis/)
+
+後續本機驗證與尚待發行確認事項見 [Windows Portable 本機封裝](WINDOWS_PORTABLE.md) 與 [M2.4 安全可行性評估](M2_4_THREAT_MODEL.md)。本稽核保留原基線結果。

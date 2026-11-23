@@ -1,0 +1,30 @@
+appId: com.tokendashboard.quota-monitor
+productName: Codex Quota Monitor
+executableName: CodexQuotaMonitor
+directories:
+  output: release
+asar: true
+files:
+  - dist/main.cjs
+  - dist/preload.cjs
+  - dist/renderer/index.html
+  - dist/renderer/assets/*.js
+  - dist/renderer/assets/*.css
+  - "!node_modules/**"
+npmRebuild: false
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+win:
+  target:
+    - target: portable
+      arch: x64
+  signExecutable: false
+portable:
+  artifactName: CodexQuotaMonitor-${version}-windows-${arch}-portable.exe
+  requestExecutionLevel: user
+  unpackDirName: false
