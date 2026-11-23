@@ -199,7 +199,7 @@ it("closes a session whose handshake times out", async () => {
   child.stall = true;
   const failure = expect(
     provider.open(new AbortController().signal),
-  ).rejects.toMatchObject({ reason: "transport", retryable: true });
+  ).rejects.toMatchObject({ reason: "timeout", retryable: true });
   await vi.advanceTimersByTimeAsync(10_000);
   await failure;
   expect(shutdown).toHaveBeenCalledOnce();
@@ -260,5 +260,96 @@ it("closes a pending read on abort and surfaces cleanup failures as terminal", a
     reason: "cleanup",
     retryable: false,
   });
+  expect(shutdown).toHaveBeenCalledOnce();
+});
+
+it("cancels a pending handshake and prevents a late reply from issuing account RPC", async () => {
+  vi.useFakeTimers();
+  const { child, shutdown, provider } = fixture();
+  child.stall = true;
+  const controller = new AbortController();
+  const result = expect(provider.open(controller.signal)).rejects.toThrow();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(child.requests).toEqual(["initialize"]);
+  controller.abort();
+  child.reply({ id: 1, result: {} });
+  await result;
+  expect(child.requests).toEqual(["initialize"]);
+  expect(shutdown).toHaveBeenCalledOnce();
+});
+
+it("does not issue RPC if a launcher returns after the overall deadline", async () => {
+  vi.useFakeTimers();
+  const { child, launch, shutdown, provider } = fixture();
+  let finish!: (running: { child: Child; shutdown: typeof shutdown }) => void;
+  launch.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const result = expect(
+    provider.open(new AbortController().signal),
+  ).rejects.toMatchObject({ reason: "timeout" });
+  await vi.advanceTimersByTimeAsync(30_000);
+  finish({ child, shutdown });
+  await result;
+  expect(child.requests).toEqual([]);
+  expect(shutdown).toHaveBeenCalledOnce();
+});
+
+it("quarantines an unresolved launch after the cleanup bound and still reaps its late child", async () => {
+  vi.useFakeTimers();
+  const { child, launch, shutdown, provider } = fixture();
+  let finish!: (running: { child: Child; shutdown: typeof shutdown }) => void;
+  launch.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const result = expect(
+    provider.open(new AbortController().signal),
+  ).rejects.toMatchObject({
+    reason: "cleanup",
+    retryable: false,
+  });
+  await vi.advanceTimersByTimeAsync(30_000);
+  await expect(
+    provider.open(new AbortController().signal),
+  ).rejects.toMatchObject({
+    reason: "unavailable",
+  });
+  await vi.advanceTimersByTimeAsync(16_000);
+  await result;
+  await expect(
+    provider.open(new AbortController().signal),
+  ).rejects.toMatchObject({ reason: "cleanup" });
+  expect(launch).toHaveBeenCalledOnce();
+  finish({ child, shutdown });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(shutdown).toHaveBeenCalledOnce();
+  expect(child.requests).toEqual([]);
+});
+
+it("shares the handshake deadline between initialization and account classification", async () => {
+  vi.useFakeTimers();
+  const { child, shutdown, provider } = fixture();
+  child.stall = true;
+  const result = expect(
+    provider.open(new AbortController().signal),
+  ).rejects.toMatchObject({ reason: "timeout" });
+  await vi.advanceTimersByTimeAsync(9_000);
+  child.reply({
+    id: 1,
+    result: {
+      userAgent: "fixture",
+      codexHome: "C:\\fixture",
+      platformFamily: "windows",
+      platformOs: "windows",
+    },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(child.requests).toEqual(["initialize", "initialized", "account/read"]);
+  await vi.advanceTimersByTimeAsync(1_000);
+  await result;
   expect(shutdown).toHaveBeenCalledOnce();
 });

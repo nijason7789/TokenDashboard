@@ -252,9 +252,7 @@ it("handles a synchronous spawn error and releases the lease", async () => {
 it("cleans up if the verification lease fails after the child starts", async () => {
   const { deps, child, lease } = setup();
   lease.close.mockRejectedValueOnce(new Error("private verifier detail"));
-  await expect(launchVerifiedCodex([image], deps)).rejects.toThrow(
-    "Codex verifier could not close",
-  );
+  await expect(launchVerifiedCodex([image], deps)).rejects.toThrow("cleanup");
   expect(child.kill).toHaveBeenCalledOnce();
   expect(child.eventNames()).toEqual([]);
 });
@@ -271,4 +269,47 @@ it("bounds forced shutdown when a process fails to close", async () => {
   await rejected;
   expect(child.eventNames()).toEqual([]);
   expect(child.stdout.destroyed).toBe(true);
+});
+
+it.each([false, true])(
+  "reaps a child that has not emitted spawn (cancel=%s)",
+  async (cancel) => {
+    vi.useFakeTimers();
+    const { deps, child, lease } = setup();
+    deps.spawn.mockReturnValue(child);
+    const controller = new AbortController();
+    const result = expect(
+      launchVerifiedCodex([image], deps, controller.signal),
+    ).rejects.toThrow(cancel ? "cancelled" : "timeout");
+    await vi.advanceTimersByTimeAsync(0);
+    if (cancel) controller.abort(new Error("cancelled"));
+    else await vi.advanceTimersByTimeAsync(5_000);
+    await result;
+    child.emit("spawn");
+    expect(child.kill).toHaveBeenCalledOnce();
+    expect(lease.matches).not.toHaveBeenCalled();
+    expect(lease.close).toHaveBeenCalledOnce();
+  },
+);
+
+it("withholds a verified child when cancellation occurs while closing the verifier", async () => {
+  vi.useFakeTimers();
+  const { deps, child, lease } = setup();
+  let closed!: () => void;
+  lease.close.mockReturnValue(
+    new Promise<void>((resolve) => {
+      closed = resolve;
+    }),
+  );
+  const controller = new AbortController();
+  const result = expect(
+    launchVerifiedCodex([image], deps, controller.signal),
+  ).rejects.toThrow("cancelled");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(lease.close).toHaveBeenCalledOnce();
+  controller.abort(new Error("cancelled"));
+  closed();
+  await vi.advanceTimersByTimeAsync(250);
+  await result;
+  expect(child.kill).toHaveBeenCalledOnce();
 });

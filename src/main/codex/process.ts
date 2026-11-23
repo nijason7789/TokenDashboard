@@ -2,6 +2,9 @@ import { once, type EventEmitter } from "node:events";
 import { win32 as windows } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
+import { QuotaProviderError } from "../services/quota-provider";
+import { startupDeadline, startupLimits } from "./startup-deadline";
+
 export const SYSTEM_ROOT = "C:\\Windows";
 export const SYSTEM_DIRECTORY = windows.join(SYSTEM_ROOT, "System32");
 export const PUBLISHER = "OpenAI OpCo, LLC";
@@ -163,7 +166,7 @@ interface VerificationLease {
 
 export interface CodexProcessDependencies {
   env: NodeJS.ProcessEnv;
-  verify: (path: string) => Promise<VerificationLease>;
+  verify: (path: string, signal: AbortSignal) => Promise<VerificationLease>;
   spawn: (
     path: string,
     args: readonly string[],
@@ -257,7 +260,9 @@ function monitor(child: CodexChild): RunningCodex {
 export async function launchVerifiedCodex(
   candidates: readonly string[],
   dependencies: CodexProcessDependencies,
+  signal = new AbortController().signal,
 ): Promise<RunningCodex> {
+  signal.throwIfAborted();
   if (candidates.length === 0) throw new Error("Codex executable not found");
 
   for (const candidate of candidates) {
@@ -268,14 +273,17 @@ export async function launchVerifiedCodex(
       continue;
     let lease: VerificationLease;
     try {
-      lease = await dependencies.verify(candidate);
-    } catch {
+      lease = await dependencies.verify(candidate, signal);
+    } catch (error) {
+      if (error instanceof QuotaProviderError) throw error;
+      signal.throwIfAborted();
       continue;
     }
 
     let running: RunningCodex | undefined;
     let started = false;
     try {
+      signal.throwIfAborted();
       if (
         lease.evidence.path.toLowerCase() !== candidate.toLowerCase() ||
         lease.evidence.signature !== "Valid" ||
@@ -291,7 +299,15 @@ export async function launchVerifiedCodex(
         stdio: ["pipe", "pipe", "pipe"],
       });
       running = monitor(child);
-      await once(child, "spawn", { signal: AbortSignal.timeout(timeoutMs) });
+      const spawn = startupDeadline(signal, startupLimits.spawn);
+      try {
+        await once(child, "spawn", { signal: spawn.signal });
+      } catch (error) {
+        spawn.signal.throwIfAborted();
+        throw error;
+      } finally {
+        spawn.clear();
+      }
       started = true;
       if (
         !child.pid ||
@@ -301,18 +317,21 @@ export async function launchVerifiedCodex(
       ) {
         throw new Error("Launched image did not match");
       }
-      return running;
-    } catch {
+      signal.throwIfAborted();
+    } catch (error) {
       if (running) {
         // Reject a mismatched image immediately, without writing anything to its stdin.
         if (
-          started &&
           running.child.exitCode === null &&
           running.child.signalCode === null
         )
           running.child.kill();
-        await running.shutdown();
+        await running.shutdown().catch(() => {
+          throw new QuotaProviderError("cleanup", false);
+        });
       }
+      if (error instanceof QuotaProviderError) throw error;
+      signal.throwIfAborted();
       throw new Error(
         started
           ? "Codex process image could not be verified"
@@ -322,9 +341,18 @@ export async function launchVerifiedCodex(
       try {
         await lease.close();
       } catch {
-        if (running) await running.shutdown();
-        throw new Error("Codex verifier could not close");
+        if (running) await running.shutdown().catch(() => {});
+        throw new QuotaProviderError("cleanup", false);
       }
+    }
+    if (running) {
+      if (signal.aborted) {
+        await running.shutdown().catch(() => {
+          throw new QuotaProviderError("cleanup", false);
+        });
+        signal.throwIfAborted();
+      }
+      return running;
     }
   }
 

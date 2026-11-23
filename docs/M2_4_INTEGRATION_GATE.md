@@ -7,7 +7,7 @@
 1. 生產 adapter `startWindowsCodex()` 在 Windows 上使用 `C:\Windows`，verifier 支援 x64／ARM64。依序探索 LocalAppData 的 OpenAI Codex bin（直接路徑及至多 16 個依字串倒序的十六進位 revision），再查 LocalAppData Programs、Program Files、至多 64 個合格 PATH 根目錄與對應架構的 npm vendor 路徑。候選須為 `codex.exe`，位於系統磁碟，canonical 路徑須等於原路徑。拒絕以目前工作目錄及其子路徑為探索根目錄，並排除非本機路徑及連結。revision 順序不代表版本順序。
 2. 固定 Windows PowerShell 使用 `-NoProfile -NonInteractive` 和固定 verifier 腳本。路徑、架構及 PID 經 stdin 傳遞。先以 `Add-Type` 載入驗證輔助程式，拒絕不支援的 PE、架構、磁碟或 reparse 路徑。持有禁止刪除共享的父目錄 handle 與僅允許讀取共享的 EXE handle，要求 Authenticode Valid、簽署者 CN 與組織皆為 OpenAI OpCo, LLC，並記錄檔案 ID 和 SHA-256 供映像比對。
 3. 以固定 cwd `C:\Windows\System32`、三個 stdio pipes、無 shell 啟動。環境限 Windows 系統路徑及必要使用者／暫存目錄。spawn 後查 PID 的 MainModule 映像路徑、volume、file ID、SHA-256 及行程存活狀態。全部通過且 verifier 關閉後，才建立 RPC transport。核對失敗即回收，禁止寫入 RPC。既有鎖與比對減少置換風險，原生初始化仍可在 spawn 與比對之間發生。
-4. 首次 smoke 前，列出解析後的唯一絕對 EXE 路徑、版本、發行者及 SHA-256，讓操作者核准該身分。現行 adapter 會依序尋找通過信任檢查的候選，未綁定人工核准的版本。未來 smoke 入口須以單一候選限制 discovery，並在現有 verifier 持鎖時額外比對核准的 digest，禁止改走下一個候選。路徑或 digest 變動、PowerShell／Add-Type 遭阻擋、無法核對實際映像時停止，完整保留既有信任條件。
+4. 首次 smoke 前，列出解析後的唯一絕對 EXE 路徑、版本、發行者及 SHA-256，讓操作者核准該身分。一般 discovery 模式會依序尋找通過信任檢查的候選。未來 smoke 入口須選擇已實作的單一候選模式。該模式在 verifier 持鎖時核對核准的 digest，並拒絕候選回退。路徑或 digest 變動、PowerShell／Add-Type 遭阻擋、無法核對實際映像時停止，完整保留既有信任條件。
 5. 固定 argv 為下列 JSON 陣列。已於前一輪用 Authenticode Valid 的本機 `0.171.0-alpha.13` 核對 `--help`、離線 `generate-ts` 與該版配置 schema。Launcher mock 驗證完整順序與額外環境設定不會注入 argv。下次須以核准的版本重做相同離線核對並確認管理政策未覆蓋配置。詳見 [協定紀錄](PROTOCOL.md#m24-launcher-離線複核) 與 [安全設計](SECURITY.md)。
 
 ```json
@@ -54,3 +54,19 @@ Transport 內部白名單同時比對方法與精確參數。現行程式忽略�
 - **回退。** 關閉生產 opt-in 並等待 monitor 停止，丟棄記憶體 snapshot，恢復 `unavailable`。必要時 revert 接線提交，保留已審查的 verifier、allowlist 和封裝強化。不得切換到 mock、沿用未確認的行程或更改使用者 Codex 設定。
 
 本次基線驗證為 18 個測試檔、231 項通過，涵蓋 launcher、transport、provider、monitor 與 mock 整合。此結果支持準備計畫，live smoke 與生產接線仍需各自審查和核准。
+
+## F-17／F-18 mock preflight
+
+| 範圍 | 期限與取消行為 |
+| --- | --- |
+| Windows discovery 至映像與 verifier 核對 | 共 20 秒。取消後晚到的 filesystem 結果不會啟動 verifier。候選驗證及核對 PID 的各次 verifier exchange 分別上限 10 秒，皆受外層期限限制。 |
+| Codex spawn | 收到 spawn 事件最多 5 秒。中止後先回收子行程，不再核對或寫入 RPC。 |
+| RPC 啟動握手 | 初始化及帳號分類共享 10 秒。中止時關閉 transport，忽略晚到的回覆。仍未交付 session 時，先等待所持有程序的回收。 |
+| Provider 整體啟動 | 最多 30 秒後停止啟動。若 launcher 尚未交還所有權，額外等待最多 16 秒確認回收。逾期回報不可重試的 cleanup failure，同一 provider 拒絕再開啟，晚到結果仍安排關閉。 |
+| Windows 清理 | Codex 和 verifier 各先關 stdin、等 250 ms，再執行終止。終止後分別最多等 5 秒與 10 秒。清理等待獨立於啟動期限，無法確認回收就是失敗。 |
+
+`startWindowsCodex(signal, { path, sha256 })` 是內部單一候選模式。要求正規的本機絕對 `codex.exe` 路徑及 64 字元十六進位 SHA-256。只解析指定候選，不執行 discovery 列舉或 fallback。Windows verifier 在持有檔案鎖時核對核准 digest，通過既有 PE、Authenticode、發行者條件後才回應 verified。實際啟動映像仍須匹配路徑、volume、file ID 與雜湊；完成前不建立 transport。Renderer 和 IPC 沒有此入口。這次測試以替身驗證資料傳遞、拒絕、逾時及回收，未以真實 Codex 驗證映像。
+
+保留人工入口 `scripts/m2-4-live-smoke.mjs`。目前直接執行也會以失敗結束，入口沒有 launcher 或 RPC import。npm、CI、E2E、正式應用與 Portable 都不接線。環境旗標、設定檔或命令列參數無法啟用。要加入 live 能力，仍須完成隔離證據與獨立授權，並另行審查 runner 實作。
+
+在接線前仍需驗證既有 Monitor 的 10 秒 open deadline／1 秒晚到回收等待與 Windows preflight 實測時序的相容性；Monitor 會在所有權未確認時保持隔離。首次 authenticated smoke 仍須另行核准執行檔、隔離環境、外連政策及單次 RPC 範圍。

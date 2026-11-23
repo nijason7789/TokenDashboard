@@ -138,7 +138,7 @@ it.each(["wrong\n", "verified\nextra\n"])(
 it("times out the verifier without starting the candidate", async () => {
   vi.useFakeTimers();
   const { helper } = prepare();
-  const failure = expect(startWindowsCodex()).rejects.toThrow(/trust/);
+  const failure = expect(startWindowsCodex()).rejects.toThrow(/timeout/);
   await vi.advanceTimersByTimeAsync(10_000);
   await failure;
   expect(mocks.spawn).toHaveBeenCalledTimes(1);
@@ -150,4 +150,95 @@ it("kills the launched candidate on image verification failure", async () => {
   await expect(startWindowsCodex()).rejects.toThrow(/image/);
   expect(codex.kill).toHaveBeenCalledOnce();
   expect(helper.exitCode).toBe(0);
+});
+
+it("binds approved mode to one canonical path and sends its SHA-256 only to the verifier", async () => {
+  const { inputs } = prepare("verified\r\n");
+  const sha256 = "a".repeat(64);
+  const running = await startWindowsCodex(undefined, { path: image, sha256 });
+  await running.shutdown();
+  expect(JSON.parse(inputs[0]!)).toEqual({
+    path: image,
+    arch: process.arch,
+    sha256,
+  });
+  expect(mocks.readdir).not.toHaveBeenCalled();
+});
+
+it("cancels verification before candidate spawn and reaps the helper", async () => {
+  vi.useFakeTimers();
+  const { helper } = prepare();
+  const controller = new AbortController();
+  const failure = expect(
+    startWindowsCodex(controller.signal),
+  ).rejects.toThrow();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  controller.abort();
+  await failure;
+  expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  expect(helper.exitCode).toBe(0);
+});
+
+it.each([false, true])(
+  "reaps a child awaiting process-image verification (cancel=%s)",
+  async (cancel) => {
+    vi.useFakeTimers();
+    const { helper, codex } = prepare("verified\r\n", "");
+    const controller = new AbortController();
+    const result = expect(startWindowsCodex(controller.signal)).rejects.toThrow(
+      cancel ? "cancelled" : "timeout",
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    if (cancel) controller.abort(new Error("cancelled"));
+    else await vi.advanceTimersByTimeAsync(10_000);
+    await result;
+    expect(codex.kill).toHaveBeenCalledOnce();
+    expect(helper.exitCode).toBe(0);
+  },
+);
+
+it("does not start a verifier after a late discovery result", async () => {
+  vi.useFakeTimers();
+  let complete!: (value: string) => void;
+  mocks.realpath.mockReturnValue(
+    new Promise<string>((resolve) => {
+      complete = resolve;
+    }),
+  );
+  const result = expect(startWindowsCodex()).rejects.toThrow("timeout");
+  await vi.advanceTimersByTimeAsync(20_000);
+  await result;
+  complete(image);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(mocks.spawn).not.toHaveBeenCalled();
+});
+
+it("rejects invalid approved identities and never falls back when the verifier denies a digest", async () => {
+  const sha256 = "a".repeat(64);
+  await expect(
+    startWindowsCodex(undefined, { path: "codex.exe", sha256 }),
+  ).rejects.toThrow(/invalid/i);
+  await expect(
+    startWindowsCodex(undefined, { path: image, sha256: "abcd" }),
+  ).rejects.toThrow(/invalid/i);
+  expect(mocks.spawn).not.toHaveBeenCalled();
+
+  const { helper, inputs } = prepare("digest rejected\r\n");
+  await expect(
+    startWindowsCodex(undefined, { path: image, sha256 }),
+  ).rejects.toThrow(/trust/);
+  expect(mocks.spawn.mock.calls.map(([path]) => path)).toEqual([shell]);
+  expect(JSON.parse(inputs[0]!)).toMatchObject({ sha256 });
+  expect(helper.exitCode).toBe(0);
+  const verifier = Buffer.from(
+    mocks.spawn.mock.calls[0]?.[1][4],
+    "base64",
+  ).toString("utf16le");
+  expect(verifier.indexOf("if ($hex -ine $inputData.sha256)")).toBeGreaterThan(
+    0,
+  );
+  expect(verifier.indexOf("if ($hex -ine $inputData.sha256)")).toBeLessThan(
+    verifier.indexOf("WriteLine('verified')"),
+  );
 });
