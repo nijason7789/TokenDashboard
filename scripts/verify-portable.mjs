@@ -37,7 +37,7 @@ export function validateArchive(entries) {
   }
 }
 
-async function verifyPortable() {
+async function verifyPortable(writeChecksum) {
   const { version } = JSON.parse(await readFile("package.json", "utf8"));
   const artifact = `release/CodexQuotaMonitor-${version}-windows-x64-portable.exe`;
   const resources = "release/win-unpacked/resources";
@@ -75,7 +75,12 @@ async function verifyPortable() {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(artifact)) hash.update(chunk);
   const line = `${hash.digest("hex")}  ${artifact.split("/").at(-1)}`;
-  await writeFile(`${artifact}.sha256`, `${line}\n`);
+  const sidecar = `${artifact}.sha256`;
+  if (writeChecksum) {
+    await writeFile(sidecar, `${line}\n`);
+  } else if ((await readFile(sidecar, "utf8")).trimEnd() !== line) {
+    throw new Error("Portable artifact SHA-256 mismatch");
+  }
   console.log(entries.join("\n"));
   console.log("All six Electron fuses verified.");
   console.log(line);
@@ -85,5 +90,10 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  await verifyPortable();
+  const options = process.argv.slice(2);
+  const writeChecksum =
+    options.length === 1 && options[0] === "--write-checksum";
+  if (options.length && !writeChecksum)
+    throw new Error("Unknown package verification option");
+  await verifyPortable(writeChecksum);
 }

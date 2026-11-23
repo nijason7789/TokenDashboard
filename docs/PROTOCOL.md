@@ -31,3 +31,8 @@ M2 預設 RPC timeout 10 秒，最多一個在途 RPC、16 個通知訂閱者，
 - M3 只使用有效的 `codex` 或無 ID 推送做刷新訊號。各來源相同的正規化推送會在 session 內去重。這些推送不覆寫快照，在途通知合併為最多一次後續刷新，並尊重最小間隔與恢復退避。完整查詢仍是快照資料源。
 
 Schema 可表達兩種 duration，也可表達只有一個視窗或都缺少。實際帳號是否回傳 300／10080、哪些狀況會產生推送，以及未登入/不支援方案的實際錯誤，仍需另行驗證。 [官方 Rate limits 欄位說明](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt)
+
+## M2.4 launcher 離線複核
+
+本機 Windows CLI `0.171.0-alpha.13` 的 Authenticode 為 Valid，發行者為 OpenAI OpCo, LLC。在全新空白 `CODEX_HOME` 下，以實作的完整固定 argv 加上 `--help` 及 `generate-ts --out <暫存目錄>` 各執行一次。CLI 接受該參數排列，並產生 `initialize`、`initialized`、`account/read` 與 `account/rateLimits/read` 的型別。核對 `refreshToken`、`excludeResetCreditDetails`、`rateLimitsByLimitId` 與 `windowDurationMins`。CLI 回報不在 temp 下建立 PATH aliases，schema 生成仍成功。此證據涵蓋命令列語法與協定型別，實際 App Server 的有效設定、管理政策與啟動流量仍是未來驗收項目。
+另核對該 CLI 對應版本的官方設定 schema。`features.plugins` 與 `analytics.enabled` 接受布林值，三個 OTel exporters 欄位都接受 `"none"`。 [版本固定的 config schema](https://github.com/openai/codex/blob/581161ab41e643d942e1e1b5f561034060bf18e3/codex-rs/core/config.schema.json)

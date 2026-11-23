@@ -25,7 +25,8 @@ M2.1–M2.3 完成 Windows 執行檔驗證及生命週期、stdio transport、bu
 以下只供安全審查，必須取得單獨明確授權。候選為先前離線核對的桌面原生 CLI `%LOCALAPPDATA%\OpenAI\Codex\bin\31fb36cfc4b38f05\codex.exe`（研究時為 `0.171.0-alpha.13`）。執行前核對展開後的絕對路徑、版本、發行者與檔案 SHA-256。若候選已更新、路徑不符或信任無法確認，停止並重新核准候選。由目前版本的 launcher 使用固定 cwd 與最小環境，執行以下精確參數序列。
 
 ```json
-["app-server", "--listen", "stdio://", "-c", "analytics.enabled=false", "-c",
+["app-server", "--listen", "stdio://", "-c", "features.plugins=false",
+ "-c", "analytics.enabled=false", "-c",
  "otel.exporter=\"none\"", "-c", "otel.trace_exporter=\"none\"", "-c",
  "otel.metrics_exporter=\"none\""]
 ```

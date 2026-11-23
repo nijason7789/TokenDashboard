@@ -165,13 +165,18 @@ it("fails closed on verifier failure", async () => {
 
 it("starts only the verified image with fixed arguments and a minimal environment", async () => {
   const { deps, child, lease } = setup();
-  const running = await launchVerifiedCodex([image], deps);
-  expect(deps.spawn).toHaveBeenCalledWith(
+  const running = await launchVerifiedCodex([image], {
+    ...deps,
+    env: { ...deps.env, CODEX_ARGS: "-c features.plugins=true" },
+  });
+  expect(deps.spawn).toHaveBeenCalledExactlyOnceWith(
     image,
     [
       "app-server",
       "--listen",
       "stdio://",
+      "-c",
+      "features.plugins=false",
       "-c",
       "analytics.enabled=false",
       "-c",

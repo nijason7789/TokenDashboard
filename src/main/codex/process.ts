@@ -10,6 +10,8 @@ const args = Object.freeze([
   "--listen",
   "stdio://",
   "-c",
+  "features.plugins=false",
+  "-c",
   "analytics.enabled=false",
   "-c",
   'otel.exporter="none"',

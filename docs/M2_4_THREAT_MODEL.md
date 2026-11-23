@@ -31,7 +31,7 @@ Job Object 能以一組行程管理資源與終止；子行程預設加入相同
 
 對使用主機的個人長駐監視器，可另外提出「信任已驗證官方 CLI，加上固定唯讀 RPC、停用無關功能、最小環境與可稽核網路觀察」的政策供審查。依目前已知的實作需求，全面目的地白名單不是防止本 App 發送 prompt 的唯一手段；它防護的是更廣的 CLI 內部行為。這項風險取捨應由使用者決定。本文件只提出選項。
 
-已追查的 Git 與 HTTP 活動來自官方 curated plugin startup sync。先前空白 profile A/B 測試以 `features.plugins=false` 消除了觀察期內的相關 Git／proxy 行為。未來必須以 CLI override 停用，避免依賴使用者全域設定。目前 `src/main/codex/process.ts` 的固定參數尚未加入此 override，真實整合仍未接到正式入口，因此需要在 M2.4 審查時先修正並以 mock 驗證精確參數。Telemetry、更新檢查、管理政策、認證刷新或未來版本的新啟動工作仍須逐項核對。 [版本固定的 plugin gate](https://github.com/openai/codex/blob/581161ab41e643d942e1e1b5f561034060bf18e3/codex-rs/core-plugins/src/manager.rs#L3139-L3163) · [官方 CLI feature override](https://learn.chatgpt.com/docs/cli/reference)
+已追查的 Git 與 HTTP 活動來自官方 curated plugin startup sync。先前空白 profile A/B 測試以 `features.plugins=false` 消除了觀察期內的相關 Git／proxy 行為。Launcher 現已使用固定 `-c features.plugins=false`，以 mock 驗證精確參數，避免依賴使用者全域設定。真實整合仍未接到正式入口。Telemetry、更新檢查、管理政策、認證刷新或未來版本的新啟動工作仍須逐項核對。 [版本固定的 plugin gate](https://github.com/openai/codex/blob/581161ab41e643d942e1e1b5f561034060bf18e3/codex-rs/core-plugins/src/manager.rs#L3139-L3163) · [官方 CLI feature override](https://learn.chatgpt.com/docs/cli/reference)
 
 若使用 proxy 作 egress 閘道，須同時阻擋直接 TCP／UDP、替代 DNS、IPv6 與非預期 proxy，並允許必要 DNS 與憑證驗證依賴。TLS CONNECT 主機名限制不等同 HTTPS path 限制。共享 CDN IP 也不能單獨證明目的地主機身分。避免為看見 request body 而進行 TLS interception 或保存帶認證 header 的內容。允許目的地應由指定 CLI 版本的官方來源與無帳號基線確立，再以可達性測試確認。Windows 顯式 block 與 allow 的優先序也須驗證，不能假定窄 allow 會覆蓋衝突 block。 [Windows Firewall 規則](https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/rules)
 

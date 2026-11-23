@@ -35,3 +35,4 @@ jobs:
           package-manager-cache: false
       - run: npm ci
       - run: npm run test:e2e
+      - run: ./tests/portable-smoke-profile.test.ps1

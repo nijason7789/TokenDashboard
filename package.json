@@ -11,7 +11,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npm run build && playwright test",
     "build": "vite build && node scripts/build-desktop.mjs",
-    "package:windows": "npm run build && electron-builder --win portable --x64 --publish never && npm run verify:package",
+    "package:windows": "npm run build && electron-builder --win portable --x64 --publish never && npm run verify:package -- --write-checksum",
     "verify:package": "node scripts/verify-portable.mjs"
   },
   "engines": {
