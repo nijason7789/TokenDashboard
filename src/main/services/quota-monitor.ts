@@ -7,6 +7,8 @@ import {
   type QuotaSession,
 } from "./quota-provider";
 
+import { quotaTiming } from "./quota-timing";
+
 export type PollInterval = 30 | 60 | 120 | 300;
 type QuotaData = { snapshot: QuotaSnapshot; updatedAtMs: number };
 export type QuotaStatus =
@@ -17,8 +19,8 @@ export type QuotaStatus =
 
 const intervals: readonly number[] = [30, 60, 120, 300];
 const retryDelays = [2_000, 4_000, 8_000, 16_000, 30_000];
-const requestTimeoutMs = 10_000;
-const openCleanupGraceMs = 1_000;
+const openCleanupGraceMs =
+  quotaTiming.startupCleanup + quotaTiming.startupCleanupMargin;
 const notificationDelayMs = 1_000;
 
 function interruptible<T>(promise: Promise<T>, signal: AbortSignal) {
@@ -156,18 +158,18 @@ export class QuotaMonitor {
     const operation = new AbortController();
     this.#operation = operation;
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    const arm = () => {
+    const arm = (timeoutMs: number) => {
       clearTimeout(deadline);
       deadline = setTimeout(
         () => operation.abort(new QuotaProviderError("timeout", true)),
-        requestTimeoutMs,
+        timeoutMs,
       );
     };
     try {
       if (this.#broken) throw new QuotaProviderError("transport", true);
       if (!this.#connection) {
         if (!this.#data) this.#status = { phase: "connecting" };
-        arm();
+        arm(quotaTiming.startup);
         const session = await openSession(this.provider, operation.signal);
         const connection: { session: QuotaSession; unsubscribe?: () => void } =
           { session };
@@ -198,7 +200,7 @@ export class QuotaMonitor {
         );
       }
       operation.signal.throwIfAborted();
-      arm();
+      arm(quotaTiming.read);
       const snapshot = await interruptible(
         this.#connection.session.read(),
         operation.signal,

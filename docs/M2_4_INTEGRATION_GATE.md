@@ -48,7 +48,7 @@ Transport 內部白名單同時比對方法與精確參數。現行程式忽略�
 ## 允許接線的條件與回退
 
 - **先驗收單次 smoke。** 映像確認、初始化、帳號分類、各一次唯讀 request、實際窗口映射和桶隔離、網路與完整回收均須有證據。缺少窗口可以是正確結果，但缺少實際證據的窗口須留待另一次核准測試，不能標成已驗證。安全或協定異常須先修正，獨立審查批准後才開始接線。
-- **Main-only 最小接線。** 經核准後，由 Main 的單一 app owner 建立 `QuotaMonitor(createCodexQuotaProvider(launcher))`。入口仍預設不可用，另行核准的生產 opt-in 才啟動。Launcher 應透過 AbortSignal 及可等待的回收處理 timeout／quit 競態。監控的開啟 deadline 現為 10 秒、晚到回收等待 1 秒，verifier 每次 exchange 可等 10 秒，需先驗證期限相容。逾時後不得遺留未被追蹤的行程或放寬 unreaped 隔離。
+- **Main-only 最小接線。** 經核准後，由 Main 的單一 app owner 建立 `QuotaMonitor(createCodexQuotaProvider(launcher))`。入口仍預設不可用，另行核准的生產 opt-in 才啟動。Launcher 應透過 AbortSignal 及可等待的回收處理 timeout／quit 競態。監控啟動與讀取使用獨立期限。期限與回收協議已用 mock 驗證，仍須確認核准環境的實際時序。逾時後不得遺留未被追蹤的行程或放寬 unreaped 隔離。
 - **狀態與生命週期。** `QuotaMonitor` 目前只有 status getter，需增加最小的 Main-only 狀態通知，讓自動輪詢或錯誤也能更新 Renderer。沿用 `quotaDisplayStatus`、`sanitizedStatus` 和既有 IPC／Tray refresh，偏好成功提交後更新 poll interval。bucket ID 與通知去重留 Main，避免 stale 數值觸發通知。Main 的 before-quit 要在第二次 quit 前 await `monitor.stop()`，並解除訂閱及計時器。載入失敗或退出競態也要回收。
 - **實作驗收。** 先以 mock 驗證預設入口與 CI 零真實 spawn，並覆蓋單一 provider、手動刷新／輪詢合併、帳號分類、bucket 隔離、stale／missing、啟動取消、late open、cleanup quarantine 和退出。Renderer 只能收到現有的脫敏 DTO。再跑 lint、typecheck、test、coverage、Electron E2E、build；凡有封裝入口變更也須重跑 Portable 驗證。將證據交付審查，取得與單次 smoke 分開的 dashboard 接線／啟用核准。
 - **回退。** 關閉生產 opt-in 並等待 monitor 停止，丟棄記憶體 snapshot，恢復 `unavailable`。必要時 revert 接線提交，保留已審查的 verifier、allowlist 和封裝強化。不得切換到 mock、沿用未確認的行程或更改使用者 Codex 設定。
@@ -69,4 +69,11 @@ Transport 內部白名單同時比對方法與精確參數。現行程式忽略�
 
 保留人工入口 `scripts/m2-4-live-smoke.mjs`。目前直接執行也會以失敗結束，入口沒有 launcher 或 RPC import。npm、CI、E2E、正式應用與 Portable 都不接線。環境旗標、設定檔或命令列參數無法啟用。要加入 live 能力，仍須完成隔離證據與獨立授權，並另行審查 runner 實作。
 
-在接線前仍需驗證既有 Monitor 的 10 秒 open deadline／1 秒晚到回收等待與 Windows preflight 實測時序的相容性；Monitor 會在所有權未確認時保持隔離。首次 authenticated smoke 仍須另行核准執行檔、隔離環境、外連政策及單次 RPC 範圍。
+在接線前仍需實測核准環境的 Windows preflight 時序與程序樹退出。Monitor 會在所有權未確認時保持隔離。首次 authenticated smoke 仍須另行核准執行檔、隔離環境、外連政策及單次 RPC 範圍。
+
+## F-20／F-21 跨層生命週期
+
+- Monitor 與 provider 共用 30 秒 session establishment 上限。既有 Windows 20 秒總期限、每次 verifier exchange 10 秒、spawn 5 秒及初始化／帳號分類共用 10 秒的階段上限持續適用。成功建立 session 後，另起獨立 10 秒 quota read deadline，未使用的啟動時間不轉給讀取。
+- 若啟動逾時或使用者停止，Monitor 傳遞取消後最多等 17 秒確認回收。此值包含 provider 的 16 秒晚到 launcher 回收期限及 1 秒交接緩衝。確認回收後，啟動逾時可依既有 backoff 重試，手動停止可稍後重新啟動。等待中合併 refresh 並拒絕新開啟。逾期或回收失敗永久隔離該 Monitor，晚到的程序或 session 仍安排關閉。
+- verifier 和 Codex 各先關 stdin，正常等待 250 ms 後請求終止，再分別最多等 10 秒及 5 秒。映像拒絕時可立即要求終止。若終止 API 失敗，仍等待 close 證據；未確認時只回報不可重試的 cleanup，保留晚到 close 觀察，禁止候選回退與 session 交付。Renderer DTO 不帶程序細節或內部錯誤原因。
+- Mock 覆蓋啟動晚於 10 秒、讀取獨立逾時、取消 verification／handshake、確認與未確認的回收、乾淨重啟及禁止重複 session。這些結果不構成實際 Windows 子行程樹的回收保證。真實程序若遭 OS 阻擋而無法退出，停止驗收並由隔離環境操作人員確認清理。Authenticated smoke 與 Production Wiring 仍未啟用。

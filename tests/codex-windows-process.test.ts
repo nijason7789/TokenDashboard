@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { QuotaMonitor } from "../src/main/services/quota-monitor";
+import { createCodexQuotaProvider } from "../src/main/codex/quota-provider";
 import { startWindowsCodex } from "../src/main/codex/windows-process";
 
 const mocks = vi.hoisted(() => ({
@@ -241,4 +243,57 @@ it("rejects invalid approved identities and never falls back when the verifier d
   expect(verifier.indexOf("if ($hex -ine $inputData.sha256)")).toBeLessThan(
     verifier.indexOf("WriteLine('verified')"),
   );
+});
+
+it("propagates failed verifier shutdown as terminal cleanup before candidate spawn", async () => {
+  vi.useFakeTimers();
+  const { helper } = prepare();
+  vi.spyOn(helper.stdin, "end").mockImplementation(() => helper.stdin);
+  helper.kill.mockImplementation(() => {
+    throw new Error("private verifier details");
+  });
+  const result = expect(startWindowsCodex()).rejects.toMatchObject({
+    message: "cleanup",
+    reason: "cleanup",
+    retryable: false,
+  });
+  await vi.advanceTimersByTimeAsync(20_250);
+  await result;
+  expect(mocks.spawn.mock.calls.map(([path]) => path)).toEqual([shell]);
+});
+
+it("propagates Monitor cancellation into mocked Windows verification", async () => {
+  vi.useFakeTimers();
+  const { helper, codex } = prepare();
+  const monitor = new QuotaMonitor(createCodexQuotaProvider(startWindowsCodex));
+  const starting = monitor.start();
+  await vi.advanceTimersByTimeAsync(0);
+  await monitor.stop();
+  await starting;
+  expect(helper.exitCode).toBe(0);
+  expect(codex.kill).not.toHaveBeenCalled();
+  expect(mocks.spawn.mock.calls.map(([path]) => path)).toEqual([shell]);
+  expect(monitor.status).toEqual({ phase: "disconnected" });
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("withholds a matched Codex child if the verifier cannot confirm close", async () => {
+  vi.useFakeTimers();
+  const { helper, codex, inputs } = prepare("verified\r\n");
+  vi.spyOn(helper.stdin, "end").mockImplementation(() => helper.stdin);
+  helper.kill.mockReturnValue(false);
+  const result = expect(startWindowsCodex()).rejects.toMatchObject({
+    message: "cleanup",
+    reason: "cleanup",
+    retryable: false,
+  });
+  await vi.advanceTimersByTimeAsync(10_250);
+  await result;
+  expect(inputs[1]).toBe(String(codex.pid));
+  expect(codex.exitCode).toBe(0);
+  expect(codex.eventNames()).toEqual([]);
+  expect(helper.listenerCount("close")).toBe(1);
+  helper.emit("close");
+  expect(helper.eventNames()).toEqual([]);
+  expect(vi.getTimerCount()).toBe(0);
 });

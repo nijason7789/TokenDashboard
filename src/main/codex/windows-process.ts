@@ -5,17 +5,15 @@ import {
   discoverCodex,
   isLocalAbsolute,
   launchVerifiedCodex,
+  requestTermination,
   PUBLISHER,
   SYSTEM_DIRECTORY,
   SYSTEM_ROOT,
 } from "./process";
 
+import { quotaTiming } from "../services/quota-timing";
 import { QuotaProviderError } from "../services/quota-provider";
-import {
-  interruptStartup,
-  startupDeadline,
-  startupLimits,
-} from "./startup-deadline";
+import { interruptStartup, startupDeadline } from "./startup-deadline";
 
 // Fixed script. Candidate path, architecture and PID are data on stdin.
 const verifier = String.raw`
@@ -140,7 +138,6 @@ const powerShell = windows.join(
   "v1.0",
   "powershell.exe",
 );
-const verificationTimeoutMs = 10_000;
 
 async function verifyWindowsImage(
   path: string,
@@ -238,7 +235,7 @@ async function verifyWindowsImage(
       };
       const timer = setTimeout(
         () => finish(false, new QuotaProviderError("timeout", true)),
-        verificationTimeoutMs,
+        quotaTiming.verifierExchange,
       );
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) {
@@ -255,7 +252,11 @@ async function verifyWindowsImage(
 
   async function close() {
     if (closed) return;
-    helper.stdin.end();
+    try {
+      helper.stdin.end();
+    } catch {
+      requestTermination(helper);
+    }
     async function wait(ms: number) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -269,9 +270,10 @@ async function verifyWindowsImage(
         clearTimeout(timer);
       }
     }
-    if (await wait(250)) return;
-    if (helper.exitCode === null && helper.signalCode === null) helper.kill();
-    if (!(await wait(verificationTimeoutMs)))
+    if (await wait(quotaTiming.shutdownGrace)) return;
+    if (helper.exitCode === null && helper.signalCode === null)
+      requestTermination(helper);
+    if (!(await wait(quotaTiming.verifierTermination)))
       throw new QuotaProviderError("cleanup", false);
   }
 
@@ -299,7 +301,7 @@ export async function startWindowsCodex(
   parent = new AbortController().signal,
   approved?: Readonly<{ path: string; sha256: string }>,
 ) {
-  const deadline = startupDeadline(parent, startupLimits.windows);
+  const deadline = startupDeadline(parent, quotaTiming.windows);
   try {
     return await start(deadline.signal, approved && { ...approved });
   } finally {

@@ -2,8 +2,9 @@ import { once, type EventEmitter } from "node:events";
 import { win32 as windows } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
+import { quotaTiming } from "../services/quota-timing";
 import { QuotaProviderError } from "../services/quota-provider";
-import { startupDeadline, startupLimits } from "./startup-deadline";
+import { startupDeadline } from "./startup-deadline";
 
 export const SYSTEM_ROOT = "C:\\Windows";
 export const SYSTEM_DIRECTORY = windows.join(SYSTEM_ROOT, "System32");
@@ -23,8 +24,6 @@ const args = Object.freeze([
   "-c",
   'otel.metrics_exporter="none"',
 ]);
-const timeoutMs = 5_000;
-const graceMs = 250;
 
 export interface CodexChild extends EventEmitter {
   pid?: number;
@@ -197,6 +196,14 @@ function childEnvironment(env: NodeJS.ProcessEnv) {
   return allowed;
 }
 
+export function requestTermination(child: Pick<CodexChild, "kill">) {
+  try {
+    child.kill();
+  } catch {
+    // Termination can only be confirmed by close. Don't surface OS details.
+  }
+}
+
 function monitor(child: CodexChild): RunningCodex {
   const ignoreError = () => {};
   const streams = [child.stdin, child.stdout, child.stderr];
@@ -246,11 +253,16 @@ function monitor(child: CodexChild): RunningCodex {
           cleanup();
           return;
         }
-        child.stdin.end();
-        if (await wait(graceMs)) return;
-        child.kill();
-        if (!(await wait(timeoutMs))) {
-          cleanup();
+        try {
+          child.stdin.end();
+        } catch {
+          requestTermination(child);
+        }
+        if (await wait(quotaTiming.shutdownGrace)) return;
+        requestTermination(child);
+        if (!(await wait(quotaTiming.childTermination))) {
+          // Keep the close observer and discard output until the OS confirms exit.
+          child.stdout.resume();
           throw new Error("Codex process did not close");
         }
       })()),
@@ -299,7 +311,7 @@ export async function launchVerifiedCodex(
         stdio: ["pipe", "pipe", "pipe"],
       });
       running = monitor(child);
-      const spawn = startupDeadline(signal, startupLimits.spawn);
+      const spawn = startupDeadline(signal, quotaTiming.spawn);
       try {
         await once(child, "spawn", { signal: spawn.signal });
       } catch (error) {
@@ -325,7 +337,7 @@ export async function launchVerifiedCodex(
           running.child.exitCode === null &&
           running.child.signalCode === null
         )
-          running.child.kill();
+          requestTermination(running.child);
         await running.shutdown().catch(() => {
           throw new QuotaProviderError("cleanup", false);
         });

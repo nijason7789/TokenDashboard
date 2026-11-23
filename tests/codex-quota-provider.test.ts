@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, expect, it, vi } from "vitest";
 import { createCodexQuotaProvider } from "../src/main/codex/quota-provider";
+import { QuotaMonitor } from "../src/main/services/quota-monitor";
 import { QuotaProviderError } from "../src/main/services/quota-provider";
 
 class Child extends EventEmitter {
@@ -352,4 +353,122 @@ it("shares the handshake deadline between initialization and account classificat
   await vi.advanceTimersByTimeAsync(1_000);
   await result;
   expect(shutdown).toHaveBeenCalledOnce();
+});
+
+it("allows a 15-second startup and enforces a fresh 10-second read deadline", async () => {
+  vi.useFakeTimers();
+  const { child, launch, shutdown, provider } = fixture();
+  launch.mockImplementation(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 15_000));
+    return { child, shutdown };
+  });
+  const monitor = new QuotaMonitor(provider);
+  const started = monitor.start();
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(monitor.status).toEqual({ phase: "connecting" });
+  expect(monitor.refresh()).toBe(started);
+  await vi.advanceTimersByTimeAsync(4_000);
+  await started;
+  expect(monitor.status.phase).toBe("connected");
+  child.stall = true;
+  const reading = monitor.refresh();
+  await vi.advanceTimersByTimeAsync(9_999);
+  expect(monitor.status.phase).toBe("connected");
+  await vi.advanceTimersByTimeAsync(1);
+  await reading;
+  expect(monitor.status).toMatchObject({ phase: "stale", reason: "timeout" });
+  expect(launch).toHaveBeenCalledOnce();
+  expect(shutdown).toHaveBeenCalledOnce();
+  await monitor.stop();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([true, false])(
+  "preserves startup cleanup ownership (confirmed=%s)",
+  async (confirmed) => {
+    vi.useFakeTimers();
+    const { child, launch, shutdown, provider } = fixture();
+    let release!: (running: {
+      child: Child;
+      shutdown: typeof shutdown;
+    }) => void;
+    launch.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const monitor = new QuotaMonitor(provider);
+    const started = monitor.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(monitor.refresh()).toBe(started);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(monitor.status.phase).toBe("connecting");
+    expect(launch).toHaveBeenCalledOnce();
+    if (confirmed) release({ child, shutdown });
+    await vi.advanceTimersByTimeAsync(confirmed ? 0 : 4_000);
+    await started;
+    expect(monitor.status).toEqual({
+      phase: "error",
+      reason: confirmed ? "timeout" : "cleanup",
+    });
+    expect(child.requests).toEqual([]);
+    if (!confirmed) {
+      release({ child, shutdown });
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(shutdown).toHaveBeenCalledOnce();
+    if (confirmed) {
+      const replacement = fixture();
+      launch.mockImplementation(async () => {
+        expect(shutdown).toHaveBeenCalledOnce();
+        return { child: replacement.child, shutdown: replacement.shutdown };
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(launch).toHaveBeenCalledTimes(2);
+      expect(monitor.status.phase).toBe("connected");
+      await monitor.stop();
+      expect(replacement.shutdown).toHaveBeenCalledOnce();
+    } else {
+      await monitor.stop();
+      await monitor.start();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(launch).toHaveBeenCalledOnce();
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+it("cancels a Monitor handshake and waits for the previous child before restarting", async () => {
+  vi.useFakeTimers();
+  const { child, launch, shutdown, provider } = fixture();
+  child.stall = true;
+  shutdown.mockImplementationOnce(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  });
+  const monitor = new QuotaMonitor(provider);
+  const starting = monitor.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(child.requests).toEqual(["initialize"]);
+  const stopped = monitor.stop();
+  void monitor.start();
+  child.reply({ id: 1, result: {} });
+  await vi.advanceTimersByTimeAsync(1_100);
+  expect(launch).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1_900);
+  await stopped;
+  await starting;
+  expect(child.requests).toEqual(["initialize"]);
+  expect(shutdown).toHaveBeenCalledOnce();
+  expect(monitor.status).toEqual({ phase: "disconnected" });
+  const replacement = fixture();
+  launch.mockResolvedValueOnce({
+    child: replacement.child,
+    shutdown: replacement.shutdown,
+  });
+  await monitor.start();
+  expect(launch).toHaveBeenCalledTimes(2);
+  expect(monitor.status.phase).toBe("connected");
+  await monitor.stop();
+  expect(replacement.shutdown).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
 });

@@ -1,9 +1,6 @@
+import { quotaTiming } from "../services/quota-timing";
 import type { RunningCodex } from "./process";
-import {
-  interruptStartup,
-  startupDeadline,
-  startupLimits,
-} from "./startup-deadline";
+import { interruptStartup, startupDeadline } from "./startup-deadline";
 import { CodexTransport } from "./transport";
 import {
   QuotaProviderError,
@@ -22,7 +19,7 @@ export function createCodexQuotaProvider(
       if (starting || signal.aborted)
         throw new QuotaProviderError("unavailable", true);
       starting = true;
-      const startup = startupDeadline(signal, startupLimits.overall);
+      const startup = startupDeadline(signal, quotaTiming.startup);
       try {
         return await open(signal, startup.signal);
       } catch (error) {
@@ -60,7 +57,7 @@ export function createCodexQuotaProvider(
         );
         const grace = startupDeadline(
           new AbortController().signal,
-          startupLimits.cleanup,
+          quotaTiming.startupCleanup,
         );
         try {
           await interruptStartup(cleanup, grace.signal);
@@ -149,7 +146,7 @@ export function createCodexQuotaProvider(
       void session.close().catch(() => {});
     };
     signal.addEventListener("abort", abort, { once: true });
-    const handshake = startupDeadline(startup, startupLimits.handshake);
+    const handshake = startupDeadline(startup, quotaTiming.handshake);
     handshake.signal.addEventListener("abort", abort, { once: true });
     try {
       handshake.signal.throwIfAborted();

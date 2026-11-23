@@ -1,3 +1,4 @@
+import { quotaTiming } from "../services/quota-timing";
 import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import {
@@ -77,7 +78,7 @@ export class CodexTransport {
     } = {},
   ) {
     this.#child = child;
-    this.#timeoutMs = options.timeoutMs ?? 10_000;
+    this.#timeoutMs = options.timeoutMs ?? quotaTiming.read;
     this.#maxBytes = options.maxMessageBytes ?? 1_048_576;
     if (
       !Number.isSafeInteger(this.#timeoutMs) ||

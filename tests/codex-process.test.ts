@@ -267,6 +267,8 @@ it("bounds forced shutdown when a process fails to close", async () => {
   );
   await vi.advanceTimersByTimeAsync(5_250);
   await rejected;
+  expect(child.listenerCount("close")).toBe(1);
+  child.emit("close");
   expect(child.eventNames()).toEqual([]);
   expect(child.stdout.destroyed).toBe(true);
 });
@@ -312,4 +314,26 @@ it("withholds a verified child when cancellation occurs while closing the verifi
   await vi.advanceTimersByTimeAsync(250);
   await result;
   expect(child.kill).toHaveBeenCalledOnce();
+});
+
+it("cannot fall back after a rejected image whose child never confirms shutdown", async () => {
+  vi.useFakeTimers();
+  const { deps, child, lease } = setup();
+  lease.matches.mockResolvedValue(false);
+  child.kill.mockImplementation(() => {
+    throw new Error("private child details");
+  });
+  const result = expect(
+    launchVerifiedCodex([image, "C:\\other\\codex.exe"], deps),
+  ).rejects.toMatchObject({
+    message: "cleanup",
+    reason: "cleanup",
+    retryable: false,
+  });
+  await vi.advanceTimersByTimeAsync(5_250);
+  await result;
+  expect(deps.verify).toHaveBeenCalledOnce();
+  expect(deps.spawn).toHaveBeenCalledOnce();
+  expect(lease.close).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
 });

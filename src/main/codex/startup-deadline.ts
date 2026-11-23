@@ -1,13 +1,5 @@
 import { QuotaProviderError } from "../services/quota-provider";
 
-export const startupLimits = {
-  windows: 20_000,
-  spawn: 5_000,
-  handshake: 10_000,
-  overall: 30_000,
-  cleanup: 16_000,
-} as const;
-
 export function startupDeadline(parent: AbortSignal, ms: number) {
   const controller = new AbortController();
   const timer = setTimeout(

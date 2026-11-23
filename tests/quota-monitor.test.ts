@@ -237,7 +237,7 @@ it("quarantines an overdue open and still closes its late session", async () => 
       }),
   );
   const first = monitor.start();
-  await vi.advanceTimersByTimeAsync(10000);
+  await vi.advanceTimersByTimeAsync(30_000);
   expect(open.mock.calls[0]?.[0].aborted).toBe(true);
   expect(monitor.refresh()).toBe(first);
   await vi.advanceTimersByTimeAsync(60000);
@@ -261,7 +261,7 @@ it.each(["timeout", "stop"])(
     await vi.advanceTimersByTimeAsync(0);
     const stopped = vi.fn();
     if (mode === "stop") void monitor.stop().then(stopped);
-    await vi.advanceTimersByTimeAsync(11000);
+    await vi.advanceTimersByTimeAsync(mode === "stop" ? 17_000 : 47_000);
     expect(start).toHaveBeenCalledOnce();
     if (mode === "stop") expect(stopped).toHaveBeenCalledOnce();
     expect(open.mock.calls[0]?.[0].aborted).toBe(true);
